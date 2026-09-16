@@ -1,0 +1,15 @@
+maybe_c.happy.api
+maybe_c.happy.api.data
+maybe_c.happy.api.economy
+maybe_c.happy.api.game
+maybe_c.happy.api.game.chat
+maybe_c.happy.api.game.event
+maybe_c.happy.api.game.settlement
+maybe_c.happy.api.module
+maybe_c.happy.api.net
+maybe_c.happy.api.party
+maybe_c.happy.api.reward
+maybe_c.happy.api.reward.event
+maybe_c.happy.api.spec
+maybe_c.happy.api.text
+maybe_c.happy.api.ui

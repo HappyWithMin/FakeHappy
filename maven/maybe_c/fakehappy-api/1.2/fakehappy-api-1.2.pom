@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>maybe_c</groupId>
+  <artifactId>fakehappy-api</artifactId>
+  <version>1.2</version>
+  <dependencies>
+    <dependency>
+      <groupId>io.papermc.paper</groupId>
+      <artifactId>paper-api</artifactId>
+      <version>26.2.build.112-stable</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.jetbrains</groupId>
+      <artifactId>annotations</artifactId>
+      <version>26.0.2</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+</project>
