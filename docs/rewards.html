@@ -1,8 +1,8 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>奖励与结算 · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a aria-current="page" href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="奖励等级与结算">奖励、等级与结算</h1>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>奖励与结算 · FakeHappy 1.4.6</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.6 · 2026-11-21</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a aria-current="page" href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计</a><a  href="access.html">子服准入</a></nav><main><h1 id="奖励等级与结算">奖励、等级与结算</h1>
 <blockquote>
 <p>FakeHappy 开发文档的一部分。索引在 <a href="index.html">开发文档首页</a>。</p>
 </blockquote>
-<h2 id="76-发奖励货币-等级-积分">7.6 发奖励：货币 / 等级 / 积分</h2>
+<h2 id="76-发奖励货币--等级--积分">7.6 发奖励：货币 / 等级 / 积分</h2>
 <p>奖励公式按规范第十一章计算，发放使用 <code>RewardService</code>：</p>
 <pre><code class="language-java">RewardService rs = api.rewards();
 
@@ -96,16 +96,5 @@ public void onLevelUp(PlayerLevelUpEvent e) {
 <p><code>/rewards</code>（别名 <code>/reward</code> <code>/jiangli</code>）打开领取界面：两条曲线的档位铺在同一张表里，
 三态格子（可领 / 已领 / 未解锁），红点数字来自「待领奖励」占位符。
 无 GUI 的场景用 <code>/rewards claim &lt;key&gt;</code> 和 <code>/rewards claimall</code>。</p>
-<p><code>auto-claim: true</code>（默认）时界面照样有用 —— 它是玩家看「我拿过什么」的地方。</p>
-<h3 id="奖励档位是-op-局内改的不是改文件">奖励档位是 OP 局内改的，不是改文件</h3>
-<p><code>/rewards admin</code> 打开编辑器，增删改一档奖励（等级门槛 / 货币 / 命令 / 公告 / 图标），
-<strong>保存后同步到各子服</strong>，不重启、不改文件。老客户端（Dialog 要 1.21.6+）
-和控制台用等价的命令行：<code>/rewards admin list|add|set|remove|import|status|reapply</code>。</p>
-<p>奖励档位由框架统一管理，修改后各子服重新读取。拓展使用公开奖励接口，不直接修改存储结构。</p>
-<p>删一档时记得加 <code>purge</code>：<code>/rewards admin remove level lv10 purge</code> 会连同全网的
-领取记录一起清。不清的话这个 key 会以幽灵形态留在所有领过的人身上，
-将来复用同名 key 时那批人会看到「已领取」且永远领不到。</p>
-<p><code>/rewards admin status</code> 显示本服的档位数与版本号 —— <strong>两台子服各看一眼版本号，
-就知道是不是有一台没同步上</strong>。</p>
-<hr>
-<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>
+<p>开着自动领取（默认）时界面照样有用 —— 它是玩家看「我拿过什么」的地方。</p>
+<footer>FakeHappy 开发文档 · 1.4.6</footer></main></div></body></html>

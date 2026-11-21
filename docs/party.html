@@ -1,11 +1,11 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>组队 · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a aria-current="page" href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="全服组队">全服组队</h1>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>组队 · FakeHappy 1.4.6</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.6 · 2026-11-21</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a aria-current="page" href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计</a><a  href="access.html">子服准入</a></nav><main><h1 id="全服组队">全服组队</h1>
 <blockquote>
 <p>FakeHappy 开发文档的一部分。索引在 <a href="index.html">开发文档首页</a>。</p>
 </blockquote>
 <h2 id="77-全服组队">7.7 全服组队</h2>
 <p>队伍状态的权威在<strong>跨服层</strong>上，不在任何一个子服或代理的内存里 —— 网络里有多个代理、多个子服，
 「队长在大厅、队员在小游戏二号服、两人还挂在不同代理下」是常态而不是边界情况。
-各子服只留缓存，靠 pub/sub 失效。</p>
+各子服只留缓存，变更时通知失效。</p>
 <p>跨服层不可用时 <code>api.party().isAvailable()</code> 是 false，查询返回空、操作返回 <code>UNAVAILABLE</code>，
 <strong>不抛异常</strong> —— 单机开发环境下你的游戏照常跑，只是没有跨服队伍。</p>
 <p>小游戏要做的只有两件事，其余（队长转让、跨服带人、掉线处理）都是框架的事。</p>
@@ -48,7 +48,7 @@
 <td><strong>框架只送人，不编队</strong>。谁跟谁一队由你的插件决定</td>
 </tr>
 </tbody></table>
-<h4 id="已经有自己一套分队逻辑的声明-deliver_only">已经有自己一套分队逻辑的，声明 <code>DELIVER_ONLY</code></h4>
+<h4 id="已经有自己一套分队逻辑的声明-deliveronly">已经有自己一套分队逻辑的，声明 <code>DELIVER_ONLY</code></h4>
 <p>子服那边多半早就有自己的分队实现了 —— 按段位排、按职业配平、按上一局结果轮换。
 这些规则框架不知道，硬套 5.1/5.2/5.3 那三条只会打乱它。所以形态分两类：</p>
 <table>
@@ -150,7 +150,7 @@ switch (plan.decision()) {
 <td><code>/party invite|accept|deny|leave|kick|promote|disband|warp|list</code>（别名 <code>/p</code> <code>/team</code>）</td>
 </tr>
 </tbody></table>
-<p>队伍上限默认 4 人，改 <code>modules.party.max-size</code>。</p>
+<p>队伍上限默认 4 人，由服主配置。</p>
 <p>要自己判断「队伍里现在有几个人真的在线」，用 <code>api.party().onlineMembers(partyId)</code> ——
 它按<strong>心跳</strong>判，不是按本机 <code>Bukkit.getPlayer</code> 判。队友本来就多半在别的子服上，
 按本机在线判会把他们全算成离线。代价是刚上线的成员最多晚一个心跳周期（15 秒）才算进来。</p>
@@ -174,5 +174,14 @@ switch (plan.decision()) {
 </code></pre>
 <p>各处的说法就此统一。查询（<code>partyOf</code> / <code>isLeader</code> / <code>pendingInviteFrom</code>）是同步的、
 读本地缓存，事件处理里可以直接调；写操作全部返回 <code>CompletableFuture</code>。</p>
+<h3 id="匹配时可以读信用分和隐藏分">匹配时可以读信用分和隐藏分</h3>
+<p>声明了组队编队形态（不是 <code>SOLO</code>）的游戏，信用分太低的人进不来、也组不了队，框架在
+<code>join</code> 时就拦了，游戏不用自己判。想按分数分组（比如把隐藏分低的人排到一起）时读 <code>api.credit()</code>：</p>
+<pre><code class="language-java">CreditService credit = api.credit();          // 模块没开时 available() 为 false
+OptionalInt hidden = credit.hiddenScore(uuid); // 本服在线玩家读缓存，主线程可调；没读到为空
+boolean ok = credit.canJoinTeamGames(uuid);   // 读不到分数时为 true
+credit.load(uuid).thenAccept(s -&gt; { /* 离线的人查库，回调在异步线程 */ });
+</code></pre>
+<p>两种分都是 0 ~ 100：隐藏分是给匹配参考的内部评分，100 为正常，<strong>别显示给玩家</strong>。接口只读，分数怎么变由框架按聊天和对局自己算。</p>
 <hr>
-<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>
+<footer>FakeHappy 开发文档 · 1.4.6</footer></main></div></body></html>

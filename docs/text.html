@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>文本 · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a aria-current="page" href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="文本与风格">文本与风格</h1>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>文本 · FakeHappy 1.4.6</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.6 · 2026-11-21</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a aria-current="page" href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计</a><a  href="access.html">子服准入</a></nav><main><h1 id="文本与风格">文本与风格</h1>
 <blockquote>
 <p>FakeHappy 开发文档的一部分。索引在 <a href="index.html">开发文档首页</a>。</p>
 </blockquote>
@@ -121,7 +121,7 @@ Component c = text.parse(&quot;&amp;c&lt;bold&gt;血量 &lt;sprite:gui:hud/heart
 </tbody></table>
 <p><strong>不带 trust 参数的重载一律按 SYSTEM 处理。</strong> 所以凡是来源含玩家输入的，
 必须显式传 <code>PLAYER</code> 或 <code>LITERAL</code>。</p>
-<h3 id="不要自己-new-一个-non_interactable-的-minimessage-就当它安全">⚠ 不要自己 new 一个 NON_INTERACTABLE 的 MiniMessage 就当它安全</h3>
+<h3 id="-不要自己-new-一个-noninteractable-的-minimessage-就当它安全">⚠ 不要自己 new 一个 NON_INTERACTABLE 的 MiniMessage 就当它安全</h3>
 <p>实测（Adventure 5.2.0）<code>MiniMessage.Preset.NON_INTERACTABLE</code> <strong>只挡</strong> click /
 hover / insert，<code>&lt;selector&gt;</code>、<code>&lt;score&gt;</code>、<code>&lt;nbt&gt;</code> 照样生效 —— 其中 <code>&lt;nbt&gt;</code>
 能把任意方块 / 实体的 NBT 读进聊天。</p>
@@ -159,7 +159,7 @@ text.feedback(player, &quot;deny&quot;);   // 统一音效
 <strong>MiniMessage 标签</strong> —— 走 <code>text.parse()</code> 的任何字符串里都能写：</p>
 <pre><code>&lt;brand&gt;标题&lt;/brand&gt;  &lt;accent&gt;数值&lt;/accent&gt;  &lt;muted&gt;说明&lt;/muted&gt;
 &lt;ok&gt;成功&lt;/ok&gt;  &lt;warn&gt;警告&lt;/warn&gt;  &lt;error&gt;失败&lt;/error&gt;  &lt;body&gt;正文&lt;/body&gt;
-&lt;icon:crown&gt;  &lt;icon:heart&gt;  &lt;icon:coin&gt;       ← 外观配置里登记过的都行
+&lt;icon:crown&gt;  &lt;icon:heart&gt;  &lt;icon:coin&gt;       ← 外观配置里登记过的图标都行
 </code></pre>
 <p>它们只能改颜色和插入预先登记过的图标，产生不了副作用，所以<strong>两个信任级别都放行</strong> ——
 玩家在队名里写 <code>&lt;brand&gt;</code> 最多是让队名变成品牌色。</p>
@@ -173,6 +173,6 @@ text.feedback(player, &quot;deny&quot;);   // 统一音效
         .build();
 </code></pre>
 <p><strong>不要缓存 <code>styleTags()</code> 的返回值</strong> —— 外观配置热重载后会换一个新的，
-缓存住的那个仍然指向旧配色。每次用每次取（可用 <code>Supplier</code> 按需取得）。</p>
+缓存住的那个仍然指向旧配色。每次用每次取（可以存一个 <code>Supplier</code> 按需取）。</p>
 <hr>
-<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>
+<footer>FakeHappy 开发文档 · 1.4.6</footer></main></div></body></html>

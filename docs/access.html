@@ -1,0 +1,75 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>子服准入 · FakeHappy 1.4.6</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.6 · 2026-11-21</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计</a><a aria-current="page" href="access.html">子服准入</a></nav><main><h1 id="子服准入锁-146">子服准入锁 1.4.6</h1>
+<p><code>Happy.api().access()</code> 让大厅上的活动插件锁住目标子服：锁上之后只有放行名单上的人和工作人员能进。抽奖、报名、送人由你的插件自己做，和 <a href="events.html">活动接管</a> 的 <code>EventApi</code> 无关 —— 不受「同时只有一场活动」和内置抽奖算法的限制，每台子服各锁各的。</p>
+<p>依赖方式同其他接口：<code>fakehappy-api</code> 用 <code>provided</code>，plugin.yml 写 <code>depend: [FakeHappy]</code>。代理上要装同版本的 FakeHappy 代理插件。</p>
+<h2 id="接口">接口</h2>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>isAvailable()</code></td>
+<td>跨服层连着才能用</td>
+</tr>
+<tr>
+<td><code>lock(plugin, serverId, options)</code></td>
+<td>锁定；自己已持有时只换选项，名单不变</td>
+</tr>
+<tr>
+<td><code>unlock(plugin, serverId)</code></td>
+<td>解锁，只有持有者能解</td>
+</tr>
+<tr>
+<td><code>setAllowlist(plugin, serverId, uuids)</code></td>
+<td>整体替换放行名单，最多 2000 人</td>
+</tr>
+<tr>
+<td><code>evacuate(plugin, serverId, fallback)</code></td>
+<td>把该服上名单外的人送到 fallback，返回逐人回执；有豁免权限的人不动</td>
+</tr>
+<tr>
+<td><code>evacuate(plugin, serverId, fallback, true)</code></td>
+<td>同上，有豁免权限的人（OP）也送走，只留名单上的人</td>
+</tr>
+<tr>
+<td><code>state(serverId)</code> / <code>locks()</code></td>
+<td>直接读当前状态；插件重启后用来恢复</td>
+</tr>
+</tbody></table>
+<p><code>serverId</code> 是代理配置里的子服名，也认服主配的子服显示名。持有者按插件名区分：别的插件锁着时返回 <code>NOT_OWNER</code>，<code>Result.state()</code> 里能看到是谁。</p>
+<p>所有方法返回 <code>CompletableFuture</code>，一般在 IO 线程完成；失败不抛异常，看 <code>Result.status()</code>。<code>state</code> / <code>locks</code> 读不到跨服层时 future 异常完成 —— 读失败和「没锁」要分开处理。</p>
+<p><code>LockOptions(evacuateOnLock, fallbackServer, denyMessage)</code>：</p>
+<ul>
+<li><code>evacuateOnLock</code>：锁上的同时清人，future 等清人做完再完成。要逐人结果就再调一次 <code>evacuate</code>。</li>
+<li><code>fallbackServer</code>：清人送去哪；直接登录到被锁子服、或锁生效时正在路上的人也送去这里。</li>
+<li><code>denyMessage</code>：被拒时玩家看到的文字，null 用「本场活动暂不可进入」。</li>
+<li>第四个参数 <code>eventRound</code> 默认 <code>true</code>，见下面「活动期间的奖励与游戏行为」。</li>
+<li>第五个参数 <code>exemptMayEnter</code> 默认 <code>true</code>：有豁免权限的人（OP）不在名单上也能进、能上场。传 <code>false</code> 就只认名单：OP 没在名单上也进不去、上不了场，清人时也一起清（三个参数的 <code>evacuate</code> 也清）。例：<code>new LockOptions(false, &quot;主大厅&quot;, msg, true, false)</code>。</li>
+</ul>
+<p>完整流程见示例 <code>example/src/main/java/maybe_c/happy/example/access/AccessLockExample.java</code>。</p>
+<h2 id="行为">行为</h2>
+<ol>
+<li><strong>拦在哪</strong>：代理切服前拒绝，玩家留在原来的服并看到 denyMessage，不会先进去再被踢。目标服装了 FakeHappy 的话，进服时再查一遍兜底。刚写进放行名单的人紧接着被送过去不会被误拒（代理会再查一次最新状态）。</li>
+<li><strong>豁免权限</strong>：<code>AccessService.BYPASS_PERMISSION</code> 或活动的豁免权限，默认 OP 都有。锁的 <code>exemptMayEnter</code> 为 <code>false</code> 时豁免不算数。权限在子服上判断，玩家进任意一台 FakeHappy 子服时同步给代理；直接在代理上给也认。</li>
+<li><strong>持久化</strong>：锁存在跨服层，没有过期时间。子服、大厅、代理重启后都还在。</li>
+<li><strong>持有者失效</strong>：插件卸载或崩溃时锁保留。重启后用 <code>locks()</code> 找回自己的锁继续管理；管理员可以在 FakeHappy 的管理面板里强制解锁。</li>
+<li><strong>清人范围</strong>：<code>evacuate</code> 处理此刻已经在该服上的人（每台代理处理自己手上的，回执汇总）。锁生效时正在连接中的人，到了之后由代理送去锁上记录的 <code>fallbackServer</code>；没设 fallback 时由目标服的 FakeHappy 在登录时拒绝。</li>
+</ol>
+<p>有豁免权限的人默认不清（解说、录像、场控要留在服上），回执的 message 会写「另有 N 人有豁免权限，没动」。要连 OP 一起清，用四个参数的 <code>evacuate(..., true)</code>：名单上的 OP 照样留下；清完之后豁免的人自己再连过来不拦。</p>
+<ol start="6">
+<li><strong>强制送人</strong>：<code>network().send(玩家们, 子服, true)</code> 跳过锁，只管这一次：名单外的人能进这一回，下次清人照样被送走，离开后再进照样被拦。要整场都能进出就加进你自己锁的放行名单。权限由调用方自己查。管理员也有对应的强制送人命令。没更新的代理不认这个标记，<code>SendResult.message()</code> 会点名是哪几台。后台或 OP 用代理上的切服、送人命令进锁着的子服时也是这样：不看名单直接放进去，同样只管这一次，<code>exemptMayEnter=false</code> 也挡不住。</li>
+</ol>
+<p><code>EvacuateReceipt.complete()</code> 为 false 时看 <code>proxiesAnswered / proxiesExpected</code>：有代理没回，那台上的人可能没清；或者看 <code>players()</code> 里 <code>FAILED</code> 的人。</p>
+<h2 id="活动期间的奖励与游戏行为">活动期间的奖励与游戏行为</h2>
+<p>子服锁着期间，内测 / 公测游戏的测试局<strong>不发积分</strong>（配置过的货币、经验照发）。这一条只看有没有锁，和下面的 <code>eventRound</code> 无关。</p>
+<p><code>eventRound = true</code>（默认）时，被锁子服上的游戏按活动目标子服对待，和内置活动一样：</p>
+<ul>
+<li><code>HappyApi.eventModeHere()</code> 为 true，小游戏据此暂停自动开局；</li>
+<li>游戏自己凑够人不会自动开局，OP 在管理面板「强制开始」或敲开局命令照常；</li>
+<li>只有放行名单和豁免的人能上场；</li>
+<li>自定义房照常发奖。</li>
+</ul>
+<p>想让游戏照常自动开局时用 <code>new LockOptions(false, lobby, msg, false)</code>。</p>
+<footer>FakeHappy 开发文档 · 1.4.6</footer></main></div></body></html>

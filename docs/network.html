@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>跨服 · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a aria-current="page" href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="跨服">跨服</h1>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>跨服 · FakeHappy 1.4.6</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.6 · 2026-11-21</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a aria-current="page" href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计</a><a  href="access.html">子服准入</a></nav><main><h1 id="跨服">跨服</h1>
 <blockquote>
 <p>FakeHappy 开发文档的一部分。索引在 <a href="index.html">开发文档首页</a>。</p>
 </blockquote>
@@ -12,11 +12,20 @@ if (!net.isAvailable()) { /* 跨服层不可用 */ }
 <pre><code class="language-java">net.rooms(&quot;spleef&quot;).thenAccept(rooms -&gt; ...);       // 回调在异步线程！
 net.findBestRoom(&quot;spleef&quot;).thenAccept(...);
 net.sendToServer(player, &quot;minigame-2&quot;);
-net.publish(&quot;myspleef&quot;, json);                       // 使用公开自定义频道
+net.publish(&quot;myspleef&quot;, json);                       // 频道名会自动加上框架的前缀，不会和别的插件撞
 var sub = net.subscribe(&quot;myspleef&quot;, payload -&gt; ...);
 </code></pre>
+<h3 id="送人">送人</h3>
+<p><code>sendToServer(player, 子服)</code> 只能送<strong>本服在线</strong>的人，发出去就不管了。要送别的子服上的人、或者要知道送没送到，用 <code>send</code>：</p>
+<pre><code class="language-java">net.send(List.of(uuidA, uuidB), &quot;主大厅&quot;).thenAccept(result -&gt; {
+    // 回调在 IO 线程。每人一条：MOVED / ALREADY / FAILED（满人、被准入锁拦下……看 message）/ NOT_FOUND（不在线）
+    for (var e : result.entries()) { ... }
+});
+</code></pre>
+<p>各代理处理自己手上的人，最多等 12 秒；一次最多 500 人。不发活动入口邀请，被<a href="access.html">准入锁</a>锁着的子服照样拦名单外的人。</p>
 <p><code>subscribe</code> 返回的句柄<strong>必须在你的插件卸载时 <code>cancel()</code></strong>，否则订阅线程会一直
 持有你的回调（连带整个插件类加载器）—— 这是重载后内存涨的典型原因。</p>
 <h3 id="房间预约">房间预约</h3>
-<p>房间预约由框架管理容量与超时。带队排队一次预约整队名额，容量不足时选择其他房间；未完成的预约自动释放。拓展通过 NetworkService 读房间、排队和转服，不操作内部预约键。</p>
-<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>
+<p>代理会先给房间预约名额（20 秒内有效）。超过容量时退回名额并选择其他房间；玩家到达后转换预约，未完成的预约到期释放。
+带队排队一次预约整队人数，容量不足时整队换房间。</p>
+<footer>FakeHappy 开发文档 · 1.4.6</footer></main></div></body></html>
