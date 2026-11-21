@@ -1,0 +1,178 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>组队 · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a aria-current="page" href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="全服组队">全服组队</h1>
+<blockquote>
+<p>FakeHappy 开发文档的一部分。索引在 <a href="index.html">开发文档首页</a>。</p>
+</blockquote>
+<h2 id="77-全服组队">7.7 全服组队</h2>
+<p>队伍状态的权威在<strong>跨服层</strong>上，不在任何一个子服或代理的内存里 —— 网络里有多个代理、多个子服，
+「队长在大厅、队员在小游戏二号服、两人还挂在不同代理下」是常态而不是边界情况。
+各子服只留缓存，靠 pub/sub 失效。</p>
+<p>跨服层不可用时 <code>api.party().isAvailable()</code> 是 false，查询返回空、操作返回 <code>UNAVAILABLE</code>，
+<strong>不抛异常</strong> —— 单机开发环境下你的游戏照常跑，只是没有跨服队伍。</p>
+<p>小游戏要做的只有两件事，其余（队长转让、跨服带人、掉线处理）都是框架的事。</p>
+<h3 id="一在-descriptor-里声明编队形态">一、在 descriptor 里声明编队形态</h3>
+<pre><code class="language-java">.partyMode(PartyMode.M_BY_2)
+</code></pre>
+<p><strong>没声明 = 组队系统认为你还没适配</strong>，<code>party.mode</code> 那条合规检查会报缺失。
+单人游戏也要显式声明 <code>SOLO</code>，不是留空。</p>
+<table>
+<thead>
+<tr>
+<th>形态</th>
+<th>规范</th>
+<th>一支全服队伍进房间时</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SOLO</code></td>
+<td>—</td>
+<td>没有队的概念，各打各的（全服队伍关系仍然保留）</td>
+</tr>
+<tr>
+<td><code>FOUR_BY_N</code></td>
+<td>5.1</td>
+<td>四人一队、队数不限，<strong>整体编入同一队</strong></td>
+</tr>
+<tr>
+<td><code>M_BY_N</code></td>
+<td>5.2</td>
+<td>装得下就整体编入；人数超过每队上限则队员各自选队</td>
+</tr>
+<tr>
+<td><code>M_BY_2</code></td>
+<td>5.3</td>
+<td>只有两队，都装不下时<strong>拒绝进入</strong>并给明确提示</td>
+</tr>
+<tr>
+<td><code>DELIVER_ONLY</code></td>
+<td>—</td>
+<td><strong>框架只送人，不编队</strong>。谁跟谁一队由你的插件决定</td>
+</tr>
+</tbody></table>
+<h4 id="已经有自己一套分队逻辑的声明-deliver_only">已经有自己一套分队逻辑的，声明 <code>DELIVER_ONLY</code></h4>
+<p>子服那边多半早就有自己的分队实现了 —— 按段位排、按职业配平、按上一局结果轮换。
+这些规则框架不知道，硬套 5.1/5.2/5.3 那三条只会打乱它。所以形态分两类：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>你要的</th>
+<th>声明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>对接</strong></td>
+<td>告诉框架队伍规模，让它按规范自动编队</td>
+<td><code>SOLO</code> / <code>FOUR_BY_N</code> / <code>M_BY_N</code> / <code>M_BY_2</code></td>
+</tr>
+<tr>
+<td><strong>不对接</strong></td>
+<td>只要框架把小队成员送到同一局，分队我自己来</td>
+<td><code>DELIVER_ONLY</code></td>
+</tr>
+</tbody></table>
+<p><strong>两类都会把人送过去。</strong> 「送人」是全服组队存在的意义，跟你选哪种无关：</p>
+<table>
+<thead>
+<tr>
+<th>框架照做的事</th>
+<th>两类都一样</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>队长点加入</td>
+<td>本服在线的队友一起拉进同一局</td>
+</tr>
+<tr>
+<td>跨服排队</td>
+<td>整支队伍占同一个房间的名额，占不下就整队换房间</td>
+</tr>
+<tr>
+<td>队员自己点加入</td>
+<td>挡下来，提示由队长带（规范第五章）</td>
+</tr>
+</tbody></table>
+<p><code>DELIVER_ONLY</code> 唯一的区别是<strong>框架不给编队意见</strong>：<code>PartyPlacement.plan</code> 对它一律返回
+<code>INDEPENDENT</code>，你本来就不该调它 —— 人进来之后是几队、谁跟谁，全看你自己的实现。</p>
+<p>合规上的代价也在这里：规范 5.1「4×n 整体编入同一队」和 5.3「m×2 空位不足要拒绝」
+这两条检查<strong>不再挂在你头上</strong>（框架没法验一套它不知道的规则），验收时这块改成人工看。
+<code>party.follow</code>「队员跟随队长」和 <code>party.leader-quit</code>「队长退出转让」<strong>照旧要</strong>——
+人是框架送过去的，这两条躲不掉。</p>
+<p><code>DELIVER_ONLY</code> <strong>算声明过</strong>了，<code>party.mode</code> 那条检查会过；留空仍然不算。</p>
+<h3 id="二玩家进房间时按-partyplacementplan-编队">二、玩家进房间时按 <code>PartyPlacement.plan</code> 编队</h3>
+<pre><code class="language-java">Party party = api.party().partyOf(player).orElse(null);   // 同步读本地缓存，很便宜
+int[] free = { teamA.freeSlots(), teamB.freeSlots() };     // 下标就是队伍编号
+
+PartyPlacement plan = PartyPlacement.plan(
+        party == null ? 0 : party.size(), descriptor.partyMode(), TEAM_CAP, free);
+
+switch (plan.decision()) {
+    case TOGETHER    -&gt; putWholeParty(party, plan.teamIndex());
+    case INDEPENDENT -&gt; putAlone(player);          // 这一局不同队，但队伍关系保留
+    case DENIED      -&gt; {
+        text.sendPrefixed(player, plan.reason());  // 原样展示，别自己另写一句
+        // denyOptions() 是「解散全服队伍后单独加入」/「更换其它房间」，做成两个按钮
+        for (String opt : PartyPlacement.denyOptions()) offer(player, opt);
+    }
+}
+</code></pre>
+<p><code>plan</code> 是<strong>纯函数</strong>，你照结果执行就行。</p>
+<p><code>DENIED</code> 时展示 <code>reason()</code> 并提供 <code>denyOptions()</code> 两个选项，符合规范 5.3。</p>
+<h3 id="剩下的都不用你管">剩下的都不用你管</h3>
+<table>
+<thead>
+<tr>
+<th>事情</th>
+<th>谁做</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>队长退出 → 转让给<strong>在线时长最长</strong>的队员（5.4）</td>
+<td>框架。切子服不重置在线时长</td>
+</tr>
+<tr>
+<td>队员跟随队长跨子服（<code>warp</code>）</td>
+<td>框架 + 代理。队长先过去，队员随后</td>
+</tr>
+<tr>
+<td>跨服排队</td>
+<td>队长点「加入」时整队分到<strong>同一个房间</strong>；队员自己点会被挡下，提示由队长带</td>
+</tr>
+<tr>
+<td>掉线</td>
+<td><strong>有意不散队</strong>。网络抖一下不该把人踢出队伍；全员离线 30 分钟后队伍键自己过期</td>
+</tr>
+<tr>
+<td>邀请超时</td>
+<td>60 秒，过期后 <code>accept</code> 返回 <code>INVITE_EXPIRED</code></td>
+</tr>
+<tr>
+<td>玩家命令</td>
+<td><code>/party invite|accept|deny|leave|kick|promote|disband|warp|list</code>（别名 <code>/p</code> <code>/team</code>）</td>
+</tr>
+</tbody></table>
+<p>队伍上限默认 4 人，改 <code>modules.party.max-size</code>。</p>
+<p>要自己判断「队伍里现在有几个人真的在线」，用 <code>api.party().onlineMembers(partyId)</code> ——
+它按<strong>心跳</strong>判，不是按本机 <code>Bukkit.getPlayer</code> 判。队友本来就多半在别的子服上，
+按本机在线判会把他们全算成离线。代价是刚上线的成员最多晚一个心跳周期（15 秒）才算进来。</p>
+<h3 id="别的子服上的队友框架不替你安置">别的子服上的队友，框架不替你安置</h3>
+<p>队长在本服点加入时，框架把<strong>本服在线</strong>的队友一起拉进同一局。别的子服上的队友
+<strong>不会</strong>被自动送过来 —— 要把他们放进队长所在的那一局，得先知道队长落在哪个房间，
+而只有你的游戏知道。框架不猜，但会告诉队长「有 N 名队友在别的子服上」，
+不会让他以为人都跟过来了。</p>
+<p>想让他们跟过来，两条现成的路：</p>
+<ul>
+<li>队长先 <code>/party warp &lt;子服&gt;</code> 把人叫过来，再一起点加入</li>
+<li>或者由你的游戏自己调 <code>api.network()</code> 那套接口去安排 —— 你知道该塞进哪一局</li>
+</ul>
+<p><strong>本服没有这个游戏</strong>时不存在这个问题：那条路走跨服排队，整支队伍由代理分到同一个房间。</p>
+<h3 id="结果文案不用你写">结果文案不用你写</h3>
+<p><code>PartyResult</code> 每一项都自带一句给玩家看的话：</p>
+<pre><code class="language-java">api.party().invite(a, b).thenAccept(r -&gt; {
+    // 回调在异步线程！碰 Bukkit 对象要自己切回主线程
+    text.sendPrefixed(player, r.message());   // &quot;对方已经在别的队伍里了&quot; ……
+});
+</code></pre>
+<p>各处的说法就此统一。查询（<code>partyOf</code> / <code>isLeader</code> / <code>pendingInviteFrom</code>）是同步的、
+读本地缓存，事件处理里可以直接调；写操作全部返回 <code>CompletableFuture</code>。</p>
+<hr>
+<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>

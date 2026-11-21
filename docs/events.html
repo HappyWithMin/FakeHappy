@@ -1,0 +1,121 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>活动 API · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a aria-current="page" href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="活动-api-141">活动 API 1.4.1</h1>
+<p>依赖 <code>maybe_c:fakehappy-api:1.4.1</code>，使用 <code>provided</code> / <code>compileOnly</code>，plugin.yml 加 <code>depend: [FakeHappy]</code>。JDK 25。API 由同版 core 提供，不要把 API 打进拓展 jar。1.4.1 构件尚未公开发布，使用服主提供的 SDK libs。</p>
+<h2 id="接口">接口</h2>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>current()</code> / <code>roster()</code> / <code>guaranteedSignups()</code></td>
+<td>读取当前活动、名字名单和必中报名</td>
+</tr>
+<tr>
+<td><code>claimTakeover(Plugin, Duration)</code></td>
+<td>获取全网控制租约；失败返回 null</td>
+</tr>
+<tr>
+<td><code>renewTakeover</code> / <code>releaseTakeover</code></td>
+<td>修改续约期限、释放自己的租约</td>
+</tr>
+<tr>
+<td><code>open</code> / <code>update</code> / <code>end</code></td>
+<td>创建、修改、结束活动</td>
+</tr>
+<tr>
+<td><code>signup</code> / <code>withdraw</code></td>
+<td>按 UUID 报名、取消报名</td>
+</tr>
+<tr>
+<td><code>candidates(expected)</code> / <code>rosterWithIds(expected)</code></td>
+<td>读取候选资格、权重和 UUID 名单</td>
+</tr>
+<tr>
+<td><code>replaceRoster</code></td>
+<td>替换本场名单，写入真实 UUID；不改长期必中规则</td>
+</tr>
+<tr>
+<td><code>submitDraw</code></td>
+<td>校验并持久化外接开奖结果，更新原名单及准入资格</td>
+</tr>
+<tr>
+<td><code>transfer</code> / <code>transferReceipt(requestId)</code></td>
+<td>传送名单成员、查询逐人回执</td>
+</tr>
+<tr>
+<td><code>subscribe(Plugin, listener)</code></td>
+<td>监听 OPENED / UPDATED / ENDED，返回可关闭订阅</td>
+</tr>
+<tr>
+<td><code>EventLottery.draw</code></td>
+<td>独立纯算法，不写活动、不发奖励</td>
+</tr>
+</tbody></table>
+<p>业务写入返回 <code>CompletableFuture&lt;ActionResult&gt;</code>。调用处使用主线程；回调可能在 IO 线程完成，操作 Bukkit UI 时切回主线程。读取 API 时重新调用 <code>Happy.api().events()</code>，不要跨模块重建保存旧实例。</p>
+<p><code>RequestContext</code> 必须使用真实在线 Player 或 Bukkit 控制台；管理操作要求活动管理权限，玩家只能自行报名/取消。插件安装本身属于服务器信任边界，传入的操作者字段不是对外鉴权系统。</p>
+<h2 id="租约">租约</h2>
+<pre><code class="language-java">EventApi events = Happy.api().events();
+events.claimTakeover(this, Duration.ofSeconds(30)).thenAccept(lease -&gt; {
+    if (lease == null) getLogger().warning(&quot;活动控制权获取失败&quot;);
+    else this.lease = lease;
+});
+</code></pre>
+<p>期限 5–300 秒，插件启用期间由框架自动续约。插件停用时释放；网络断开、期限到期或模块重建后重新获取。<code>expiresAt</code> 是申请时的快照，授权以服务端当前租约为准。</p>
+<p>全网租约校验 owner、节点、token 和 generation。其他节点的内置活动写入被拒；旧任务即便经历接管再释放，也不能用原代际提交。活动状态、报名、名单和预设在提交时原子检查租约与完整输入快照，不依赖缓存判断。</p>
+<p>已持久确认的开奖决定属于恢复任务，权重更新可能在租约释放后完成；它不会重新抽奖。经济、积分和管理员的独立玩家偏好编辑不由活动租约控制。开奖前会重新读取权重，并在保存决定时检查权重仍未变化。</p>
+<p>旧 <code>claimTakeover(String)</code> / <code>releaseTakeover(String)</code> 保留兼容，名字必须对应已启用的插件，会同步访问跨服层。新插件用异步重载。</p>
+<h2 id="开场与修改">开场与修改</h2>
+<pre><code class="language-java">var request = new EventApi.RequestContext(UUID.randomUUID().toString(), operator);
+var settings = new EventApi.Settings(
+    &quot;抽奖活动&quot;, 16, &quot;小游戏子服ID&quot;,
+    System.currentTimeMillis() + 300_000,
+    false, 50, &quot;本场活动说明&quot;);
+Happy.api().events().open(lease, request, settings).thenAccept(result -&gt; {
+    // 只有 result.succeeded() 才表示已提交。
+});
+</code></pre>
+<p><code>Settings</code> 的 null 字段在开场时使用默认值，修改时保留原值；<code>contributionPercent</code> 用 0–100。算法参数 <code>contributionShare</code> 使用 0–1，两者不要混用。</p>
+<p>修改、结束、报名、名单和开奖提交传入 <code>events.current()</code> 得到的原始 Snapshot。<code>revision</code> 覆盖完整活动设置，不要手造快照或忽略变更冲突。</p>
+<p>请求号为 8–64 个字母、数字或 <code>._:-</code>，每个业务动作保存一个稳定编号。同编号、相同参数可重放回执；同编号改参数被拒。<code>PENDING</code> 表示结果待确认，用相同编号重试，不能换编号重新开奖。</p>
+<p>开奖重试须复用原候选、原开奖结果和原 Snapshot；将它们连同请求号保存。不要以相同编号重新调用随机算法，新的结果会被当成参数冲突。</p>
+<h2 id="报名与名单">报名与名单</h2>
+<p><code>signup</code> 需要玩家在配置的报名子服在线，并满足报名期限及认证要求。<code>withdraw</code> 同样按当前场次检查。<code>CandidateView</code> 包含 UUID、名字、online、eligible、排除原因、积分等级、全员轮权重和必中资格。</p>
+<p>使用 <code>eligible</code> 过滤；未知资格或权重读取失败不能自行补成有效候选。名字名单的历史条目可能无法解析 UUID，<code>RosterEntry.id</code> 此时为 null；传送不接受未确认身份。<code>replaceRoster</code> 必须提供真实 UUID 和唯一的名字，不能重复 UUID 或大小写重名。</p>
+<p>从本场移出的必中报名者不会在补抽时重新加入。长期必中规则与本场排除分别保存。</p>
+<h2 id="提交开奖结果">提交开奖结果</h2>
+<pre><code class="language-java">EventApi.Snapshot expected = Happy.api().events().current();
+int availableSlots = Math.max(0, expected.slots() - Happy.api().events().roster().size());
+Happy.api().events().candidates(expected).thenCompose(views -&gt; {
+    var pool = views.stream().filter(EventApi.CandidateView::eligible)
+        .map(p -&gt; new EventLottery.Candidate(
+            p.id(), p.name(), p.contributionLevel(), p.weight(), p.guaranteed()))
+        .toList();
+    var result = EventLottery.draw(
+        new EventLottery.Request(availableSlots, 0.5, pool), new SecureRandom());
+    // 此处回到主线程再调用 submitDraw。
+    return submitOnMain(lease, new EventApi.RequestContext(savedRequestId, operator),
+        expected, new EventApi.DrawSubmission(pool, result, true));
+});
+</code></pre>
+<p>完整可编译示例在 <code>examples/lottery/EventWorkflowExample.java</code>，包含切回主线程的实现。服务端重新检查报名、在线状态、认证、排除、积分等级、权重、完整候选池、轮次和名额；候选变化返回冲突，不悄悄重抽。积分轮占比必须与本场设置一致。</p>
+<p>示例 <code>prepareCurrentDraw</code> 返回可保存的 <code>PreparedDraw</code>，<code>submit</code> 可使用该对象重试；<code>drawCurrent</code> 是首次调用的便捷入口。</p>
+<p>首轮按“必中占总名额、积分轮、全员轮”计算；补抽只补全员轮，<code>firstDraw=false</code>。独立算法的必中超额会截断；原活动固定名单可超额，因此提交前应处理超额名单，不能直接假定算法结果适用于所有历史场次。</p>
+<p>调用算法时先扣掉现有名单人数；新报名的必中仍在候选中，由算法占位。补抽用剩余名额、<code>contributionShare=0</code>，只补全员轮。</p>
+<p>API 算法拒绝重复 UUID 或大小写重名。积分轮仅正积分等级参与，权重为积分等级；全员轮使用个人权重。候选不足时结果可少于名额。结果 <code>all()</code> 按必中、积分轮、全员轮合并。</p>
+<h2 id="转服回执">转服回执</h2>
+<pre><code class="language-java">var expected = Happy.api().events().current();
+var request = new EventApi.RequestContext(savedTransferId, operator);
+Happy.api().events().transfer(lease, request, expected.id(), expected.target(), players)
+    .thenAccept(receipt -&gt; {
+        // 检查每个 players() 条目的 status、attempts、message。
+    });
+</code></pre>
+<p>请求先持久保存，再进入跨服队列。代理按 UUID 校验实际名字与本场名单，发起切服后记录结果；最多尝试 3 次，30 秒执行期限。未执行的旧活动/旧控制权请求取消。</p>
+<p><code>SUCCEEDED</code> 是已确认到达；<code>PARTIAL</code> 表示部分成功。<code>TIMED_OUT</code> 表示未确认，不能当作未转服。晚到的真实成功回执可以更新记录；通过 <code>transferReceipt(savedTransferId)</code> 查询。重试使用相同请求号，不重复发出另一批请求。</p>
+<h2 id="开奖日志与恢复">开奖日志与恢复</h2>
+<p>每次开奖先永久保存候选、原权重、各轮结果、活动版本、来源和操作者；然后以 drawId 提交名单，最后在同一事务内更新权重与完成标记。这几步不是一个跨系统事务，崩溃后按已保存决定恢复，绝不重新抽随机数。</p>
+<p>待恢复决定会阻止下一笔开奖，避免权重先后顺序颠倒。审计库不可用时拒绝无记录开奖。框架定时恢复，缓存同步失败另行重试。历史固定名若未解析 UUID，审计有明确标记，不能把它当真实身份。</p>
+<p>后台审计和故障处理由服主管理。</p>
+<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>

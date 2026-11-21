@@ -1,0 +1,128 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>界面 · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a aria-current="page" href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="界面菜单与计分板">界面：菜单与计分板</h1>
+<blockquote>
+<p>FakeHappy 开发文档的一部分。索引在 <a href="index.html">开发文档首页</a>。</p>
+</blockquote>
+<h2 id="6-uidialog-与箱子共用一套按钮">6. UI：Dialog 与箱子共用一套按钮</h2>
+<p>同一 <code>MenuButton</code> 可用于箱子界面和 Dialog，交互逻辑共用。</p>
+<pre><code class="language-java">MenuButton start = MenuButton.builder(text.parse(&quot;&lt;green&gt;开始游戏&quot;))
+        .tooltip(text.parse(&quot;&lt;gray&gt;人数够了就能开&quot;))
+        .icon(new ItemStack(Material.LIME_CONCRETE))
+        .visibleIf(p -&gt; p.hasPermission(&quot;mygame.admin&quot;))
+        .enabledIf(p -&gt; game.players().size() &gt;= 2)
+        .disabledReason(&quot;人数不足&quot;)
+        .onClick(ctx -&gt; game.forceStart(ctx.player()))
+        .build();
+</code></pre>
+<p>三种菜单：</p>
+<pre><code class="language-java">UiService ui = api.ui();
+
+// 箱子：所有客户端都能看，保底形态
+ui.chest(this, title, 3).set(11, start).fillEmpty(filler).build().open(player);
+
+// Dialog：能放真正的输入控件（文本框 / 开关 / 滑条），要 1.21.6+
+ui.dialog(this, title)
+  .input(DialogInput.bool(&quot;pvp&quot;, label).initial(true).build())
+  .button(save)
+  .build().open(player);
+
+// 自适应：支持就画 Dialog，否则退回箱子。用不了输入控件
+ui.adaptive(this, title).button(start).withBackButton().build().open(player);
+</code></pre>
+<h3 id="管理类按钮的权限必须挂在-visibleif-enabledif-上">⚠ 管理类按钮的权限必须挂在 visibleIf / enabledIf 上</h3>
+<p><strong>不能只靠「打开这个菜单的那条命令有权限」。</strong> Dialog 的按钮是靠客户端回一个
+custom click 包触发的，identifier 形如 <code>fakehappy:m/&lt;菜单号&gt;/&lt;按钮号&gt;</code> ——
+菜单号是自增小整数、按钮号 0 起，几百个包就能枚举完，而且<strong>不需要先打开菜单</strong>。
+回包里的 <code>DialogResponseView</code>（所有输入框的值）也完全来自客户端。</p>
+<p>框架这边已经补了一道：<code>MenuHost.onCustomClick</code> 会先判发包的人是不是这个菜单的
+观看者。但<strong>服务端唯一会校验的业务门就是按钮自己的 <code>visibleIf</code> / <code>enabledIf</code></strong>
+（<code>DialogMenuImpl.handleClick</code> 只看这两个，都不设时一律放行）。所以：</p>
+<pre><code class="language-java">.button(MenuButton.builder(text.parse(&quot;&lt;ok&gt;执行&quot;))
+        .visibleIf(p -&gt; p.hasPermission(&quot;fakehappy.admin&quot;))
+        .enabledIf(p -&gt; p.hasPermission(&quot;fakehappy.admin&quot;))
+        .onClick(ctx -&gt; { ... })
+        .build())
+</code></pre>
+<p>漏掉的代价是实打实的：奖励档位编辑器的「保存」能写入任意 <code>commands</code>，
+而那些命令随后由框架以<strong>控制台身份</strong>执行。</p>
+<h3 id="菜单要建一次长期复用不要每次打开都新建">⚠ 菜单要建一次长期复用，不要每次打开都新建</h3>
+<p>每 <code>build()</code> 一次就在框架里登记一份，开十次漏十份。内容会变的用动态求值：</p>
+<pre><code class="language-java">// 内容随时间变（人数、倒计时）
+.dynamic(11, () -&gt; MenuButton.builder(...).build())
+
+// 内容随观看者变（每个 OP 各自选中的那个游戏）
+.dynamic(11, viewer -&gt; MenuButton.builder(...).build())
+
+// Dialog 输入框的初始值 —— 打开那一刻才读配置
+.input(viewer -&gt; DialogInput.bool(&quot;pvp&quot;, label).initial(cfg.pvp()).build())
+</code></pre>
+<p>最后那条尤其重要：<strong>Dialog 没有可靠的关闭事件</strong>（玩家按 ESC 时服务端收不到任何包），
+所以「每次打开新建一个 DialogMenu」建出来的那些永远等不到 dispose。
+不用 <code>input(Function)</code> 的话，编辑界面就只能显示建菜单那一刻的旧值 ——
+OP 改完保存、再打开看到的还是旧值，会以为没保存成功。</p>
+<p>调试信息里的 <code>menus=</code> / <code>dialogButtons=</code> <strong>持续增长不回落</strong>就是漏了。</p>
+<h3 id="框架已经替你处理好的">框架已经替你处理好的</h3>
+<ul>
+<li>点击 / 拖拽全部取消，物品拿不走塞不进</li>
+<li>玩家退出 / 传送 / 死亡时自动摘除观看者</li>
+<li><strong>插件卸载 / 服务器关闭时关掉所有界面</strong>，不会把玩家卡在死界面里</li>
+<li>导航栈：子菜单的返回按钮直接写 <code>ctx::back</code></li>
+<li>按观看者逐个求值 visibleIf / enabledIf —— 同一个菜单，OP 看到 12 个按钮、助管看到 4 个</li>
+</ul>
+<h3 id="open-vs-openwhenfree"><code>open</code> vs <code>openWhenFree</code></h3>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>用在哪</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>open(player)</code></td>
+<td><strong>玩家主动触发</strong>（点按钮、敲命令）。立即打开</td>
+</tr>
+<tr>
+<td><code>openWhenFree(player)</code></td>
+<td><strong>服务端主动弹窗</strong>（进服提示、活动通知）。等玩家手头的界面关掉再开</td>
+</tr>
+</tbody></table>
+<p>主动弹窗一定要用 <code>openWhenFree</code>：玩家可能正在填资源包确认框，硬塞过去会把它顶掉，
+直接导致他进不了服。</p>
+<h3 id="闭包引用">闭包引用</h3>
+<p>按钮回调里的闭包<strong>不要捕获 <code>Player</code> / 实体 / 世界对象</strong>，只捕获 UUID 或不可变数据。
+闭包会随菜单存活，捕获对象可能延长其生命周期。</p>
+<hr>
+<h2 id="65-小游戏计分板gameboard">6.5 小游戏计分板：GameBoard</h2>
+<p>规范第九章对<strong>首尾三处有硬性格式要求</strong>：Tab 底部 <code>==游戏名称==</code>、记分板顶部游戏名、
+记分板底部的服务器地址。这三处<strong>不开放给你设置</strong> —— 你只给中间内容，首尾框架按规范拼。
+框架设置固定格式，调用方提供中间内容。</p>
+<pre><code class="language-java">GameBoard board = api.ui().board(plugin, game)   // 拥有者插件 + 你的 MiniGame
+        .lines(viewer -&gt; List.of(
+                text.parse(&quot;&lt;gray&gt;地图 &lt;white&gt;&quot; + map.name()),
+                text.parse(&quot;&lt;gray&gt;剩余 &lt;yellow&gt;&quot; + fmt(remainSec)),
+                Component.empty(),
+                text.parse(&quot;&lt;gray&gt;你的击杀 &lt;red&gt;&quot; + kills(viewer))))
+        .autoRefresh(20)          // tick。有人在看才跑，没人看开销为零
+        .build();
+
+board.show(player);               // 幂等，重复调没事
+board.refresh();                  // 数据变了想立刻重绘（设了 autoRefresh 就不用调）
+</code></pre>
+<p>内容函数<strong>按观看者求值</strong>，所以「你的击杀」「你的队伍」这类逐人内容是天然支持的；
+不随人变的用 <code>lines(Supplier)</code>。</p>
+<h3 id="使用要求">使用要求</h3>
+<ul>
+<li><strong><code>autoRefresh(20)</code> 就够</strong>。倒计时每秒变一次，给 1 是每 tick 给每个观看者重发一遍包 ——
+一百人的服就是每秒两千个包。</li>
+<li><strong>总行数 15（含框架加的首尾）、单行 32 字符</strong>。超了框架<strong>照常显示</strong>，只在控制台警告一次。
+规范 9.2 这两条是「应当」不是「必须」，硬截断会让人看到半截字还不知道为什么。</li>
+<li><strong>不用手动 dispose</strong>。插件卸载 / 服务器关闭时框架会把它创建的计分板全部 dispose。</li>
+</ul>
+<p>Tab 底部那行默认一起设，被别的东西占了才 <code>tabFooter(false)</code> —— 关掉要在合规声明里说明。</p>
+<h3 id="合规检查的范围">合规检查的范围</h3>
+<p><code>ui.tab-footer</code> 和 <code>ui.scoreboard</code> 平时是「需声明」（框架看不到你画了什么），
+调用 <code>api.ui().board(...)</code> 后，这两项按框架提供的格式记录 <strong>PASS</strong>。这只确认格式路径，仍需检查实际客户端渲染。
+自行绘制计分板时由人工验收。</p>
+<p>地图类游戏真把计分板当画布用了的，在 descriptor 里 <code>scoreboardExempt(true)</code>，
+检查不再要求这两项，验收时须确认玩法确实占用了计分板。</p>
+<hr>
+<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>

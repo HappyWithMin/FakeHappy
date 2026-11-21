@@ -1,0 +1,178 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>文本 · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a aria-current="page" href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="文本与风格">文本与风格</h1>
+<blockquote>
+<p>FakeHappy 开发文档的一部分。索引在 <a href="index.html">开发文档首页</a>。</p>
+</blockquote>
+<h2 id="3-文本三语法混写">3. 文本：三语法混写</h2>
+<p>一段字符串里可以同时写四种语法，走 <code>api.text()</code> 统一解析：</p>
+<pre><code class="language-java">TextService text = api.text();
+Component c = text.parse(&quot;&amp;c&lt;bold&gt;血量 &lt;sprite:gui:hud/heart/full&gt; &lt;shadow:#20000080&gt;10&quot;);
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>语法</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MiniMessage</td>
+<td><code>&lt;red&gt;</code> <code>&lt;gradient:#ff0000:#0000ff&gt;</code> <code>&lt;bold&gt;</code></td>
+</tr>
+<tr>
+<td>旧版颜色码</td>
+<td><code>&amp;a</code> <code>&amp;l</code> <code>&amp;r</code>（<code>§</code> 同理）</td>
+</tr>
+<tr>
+<td>旧版十六进制</td>
+<td><code>&amp;#2ecc71</code></td>
+</tr>
+<tr>
+<td>内联贴图</td>
+<td><code>&lt;sprite:gui:hud/heart/full&gt;</code></td>
+</tr>
+<tr>
+<td>文字投影</td>
+<td><code>&lt;shadow:#20000080&gt;</code></td>
+</tr>
+</tbody></table>
+<h3 id="sprite-图集与路径">sprite 图集与路径</h3>
+<p><strong>必须带图集名。</strong> 省略图集时默认图集是 <code>minecraft:blocks</code>，而 GUI 贴图在
+<code>minecraft:gui</code> 图集里：</p>
+<pre><code>✗ &lt;sprite:hud/heart/full&gt;                     查不到
+✓ &lt;sprite:gui:hud/heart/full&gt;                 对的
+</code></pre>
+<p><strong>不要写全限定名而不加引号。</strong> MiniMessage 按冒号切参数：</p>
+<pre><code>✗ &lt;sprite:minecraft:gui:hud/heart/full&gt;
+     → atlas=minecraft:minecraft, sprite=minecraft:gui  ← 不报错，静默出错
+✓ &lt;sprite:&#39;minecraft:gui&#39;:&#39;minecraft:hud/heart/full&#39;&gt;
+</code></pre>
+<p><strong>sprite key 怎么查</strong>：拿客户端 assets 里的贴图路径，去掉 <code>textures/gui/sprites/</code>
+前缀和 <code>.png</code> 后缀。</p>
+<pre><code>assets/minecraft/textures/gui/sprites/hud/heart/full.png
+  → &lt;sprite:gui:hud/heart/full&gt;
+</code></pre>
+<p>（要自己核对图集的话，从客户端 jar 里导出 <code>assets/minecraft/textures</code> 看。）</p>
+<p><strong>三个图集，别记混</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>图集</th>
+<th>写法</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>minecraft:blocks</code></td>
+<td>可省略图集名（它是默认值）</td>
+<td><code>&lt;sprite:block/anvil&gt;</code></td>
+</tr>
+<tr>
+<td><code>minecraft:items</code></td>
+<td>必须写 <code>items:</code></td>
+<td><code>&lt;sprite:items:item/diamond&gt;</code></td>
+</tr>
+<tr>
+<td><code>minecraft:gui</code></td>
+<td>必须写 <code>gui:</code></td>
+<td><code>&lt;sprite:gui:hud/heart/full&gt;</code></td>
+</tr>
+</tbody></table>
+<p>常见缺失路径：</p>
+<ul>
+<li><strong><code>item/clock</code> 不存在。</strong> 时钟是 64 帧动画，图集里只有 <code>item/clock_00</code> …
+<code>item/clock_63</code>。写 <code>item/clock</code> 是紫黑格子。指南针同理（32 帧）。</li>
+<li><strong><code>item/anvil</code> 不存在。</strong> 铁砧没有独立的物品贴图，它用的是方块模型，
+所以要去 <strong>blocks 图集</strong>拿 <code>block/anvil</code>。</li>
+</ul>
+<p>错误路径可能渲染为缺失贴图。建议集中管理 sprite 常量，并与目标客户端资源目录核对。</p>
+<h3 id="shadow-颜色">shadow 颜色</h3>
+<p>接受 <code>#RGB</code> / <code>#RRGGBB</code> / <code>#RRGGBBAA</code> / 颜色名 / <code>颜色名:alpha</code> 五种写法。</p>
+<p><strong>关掉投影用 <code>&lt;!shadow&gt;</code>，不是 <code>&lt;shadow:none&gt;</code></strong> —— <code>none</code> 不是合法颜色，
+标签解析不了会原样当文字显示出来。</p>
+<h3 id="版本要求">版本要求</h3>
+<p>sprite 要客户端 <strong>1.21.9+</strong>，shadow 要 <strong>1.21.6+</strong>。经版本兼容插件进来的低版本
+客户端看到的是降级结果，<strong>关键信息不要只放在 sprite 里</strong>，旁边留一份文字。</p>
+<hr>
+<h2 id="4-文本安全必读">4. 文本安全（必读）</h2>
+<p><code>parse</code> 的第二个参数是<strong>信任级别</strong>，这是一条安全边界，不是样式选项。</p>
+<table>
+<thead>
+<tr>
+<th>级别</th>
+<th>用在哪</th>
+<th>效果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SYSTEM</code></td>
+<td>配置文件、代码常量</td>
+<td>全部标签可用，含 click / hover</td>
+</tr>
+<tr>
+<td><code>PLAYER</code></td>
+<td>玩家可控但希望保留配色（队名、房间名）</td>
+<td>白名单：只有外观标签</td>
+</tr>
+<tr>
+<td><code>LITERAL</code></td>
+<td>聊天正文、玩家名、外部 API 返回</td>
+<td>全部当字面量</td>
+</tr>
+</tbody></table>
+<p><strong>不带 trust 参数的重载一律按 SYSTEM 处理。</strong> 所以凡是来源含玩家输入的，
+必须显式传 <code>PLAYER</code> 或 <code>LITERAL</code>。</p>
+<h3 id="不要自己-new-一个-non_interactable-的-minimessage-就当它安全">⚠ 不要自己 new 一个 NON_INTERACTABLE 的 MiniMessage 就当它安全</h3>
+<p>实测（Adventure 5.2.0）<code>MiniMessage.Preset.NON_INTERACTABLE</code> <strong>只挡</strong> click /
+hover / insert，<code>&lt;selector&gt;</code>、<code>&lt;score&gt;</code>、<code>&lt;nbt&gt;</code> 照样生效 —— 其中 <code>&lt;nbt&gt;</code>
+能把任意方块 / 实体的 NBT 读进聊天。</p>
+<p>本服的 <code>PLAYER</code> 级走的是<strong>显式白名单</strong>（只放行 color / decoration / gradient /
+rainbow / transition / pride / reset / newline / font / sprite / shadow），
+将来 Adventure 加了什么新标签也默认是关的。<strong>统一走 TextService，不要另起炉灶。</strong></p>
+<h3 id="拼接用户输入的正确姿势">拼接用户输入的正确姿势</h3>
+<p>用占位符通道，不要手拼字符串：</p>
+<pre><code class="language-java">// ✓ 值走 unparsed，玩家名里的 &lt;click:...&gt; 不会被当标签
+text.parse(&quot;&lt;gray&gt;队名: &lt;name&gt;&quot;, TextTrust.SYSTEM, Map.of(&quot;name&quot;, userInput));
+
+// ✗ 手拼，等着被注入
+text.parse(&quot;&lt;gray&gt;队名: &quot; + userInput);
+</code></pre>
+<p>真要手拼就先 <code>text.escape(userInput)</code>。escape 不会丢字符：
+<code>R&amp;B</code> 还是 <code>R&amp;B</code>，<code>&amp;cRed</code> 会原样显示成 <code>&amp;cRed</code> 而不变红。</p>
+<blockquote>
+<p>实现细节：<code>&amp;&amp;</code> 在本管线里表示一个字面量 <code>&amp;</code>，escape 就是靠它做到「既不生效也不丢字符」。
+现有的配置文案里没有 <code>&amp;&amp;</code>，引入这条规则不改变任何既有文案。</p>
+</blockquote>
+<hr>
+<h2 id="5-风格对齐">5. 风格对齐</h2>
+<p>所有配色 / 图标 / 音效从 <code>text.style()</code> 取，不要硬编码 <code>&amp;b</code>：</p>
+<pre><code class="language-java">TextStyle s = api.text().style();
+s.brand()  s.accent()  s.ok()  s.warn()  s.error()  s.muted()
+s.icon(&quot;crown&quot;)            // 图标，取不到返回 empty 不抛异常
+s.color(&quot;我的自定义语义色&quot;)   // 取不到回落到 body
+text.feedback(player, &quot;deny&quot;);   // 统一音效
+</code></pre>
+<p>取值全都来自子服的外观配置。<strong>改一次配置全服（含所有小游戏）
+一起变，换资源包不需要重新编译任何插件。</strong> 想加新图标 / 新语义色，
+请服主在外观配置里加一行即可。</p>
+<h3 id="配置文件里也能用调色板">配置文件里也能用调色板</h3>
+<p>上面那套只能在 Java 里调。真正让 OP 编的文案也跟着换主题的，是这几个
+<strong>MiniMessage 标签</strong> —— 走 <code>text.parse()</code> 的任何字符串里都能写：</p>
+<pre><code>&lt;brand&gt;标题&lt;/brand&gt;  &lt;accent&gt;数值&lt;/accent&gt;  &lt;muted&gt;说明&lt;/muted&gt;
+&lt;ok&gt;成功&lt;/ok&gt;  &lt;warn&gt;警告&lt;/warn&gt;  &lt;error&gt;失败&lt;/error&gt;  &lt;body&gt;正文&lt;/body&gt;
+&lt;icon:crown&gt;  &lt;icon:heart&gt;  &lt;icon:coin&gt;       ← 外观配置里登记过的都行
+</code></pre>
+<p>它们只能改颜色和插入预先登记过的图标，产生不了副作用，所以<strong>两个信任级别都放行</strong> ——
+玩家在队名里写 <code>&lt;brand&gt;</code> 最多是让队名变成品牌色。</p>
+<p>外观配置缺失或图标段被改坏时，<code>ok / error / warn / info / arrow / back / coin / crown / heart / star / clock / player</code> 这几个图标有内置的纯文本兜底，
+不会渲染成空。</p>
+<h3 id="已经有自己文本管线的插件">已经有自己文本管线的插件</h3>
+<p>不想整个换掉自己那套解析器（比如你支持 <code>&amp;x&amp;a&amp;1&amp;b&amp;2&amp;c&amp;3</code> 这种本框架不处理的
+旧版十六进制），就把调色板挂到你自己的 MiniMessage 上：</p>
+<pre><code class="language-java">MiniMessage mm = MiniMessage.builder()
+        .editTags(t -&gt; t.resolver(api.text().styleTags()))
+        .build();
+</code></pre>
+<p><strong>不要缓存 <code>styleTags()</code> 的返回值</strong> —— 外观配置热重载后会换一个新的，
+缓存住的那个仍然指向旧配色。每次用每次取（可用 <code>Supplier</code> 按需取得）。</p>
+<hr>
+<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>

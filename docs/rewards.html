@@ -1,0 +1,111 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>奖励与结算 · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a aria-current="page" href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="奖励等级与结算">奖励、等级与结算</h1>
+<blockquote>
+<p>FakeHappy 开发文档的一部分。索引在 <a href="index.html">开发文档首页</a>。</p>
+</blockquote>
+<h2 id="76-发奖励货币-等级-积分">7.6 发奖励：货币 / 等级 / 积分</h2>
+<p>奖励公式按规范第十一章计算，发放使用 <code>RewardService</code>：</p>
+<pre><code class="language-java">RewardService rs = api.rewards();
+
+// 结算：按 11.1 / 11.3 算完直接发
+int[] coins = RewardFormula.payout(n, a, descriptor.sigma());
+int exp = RewardFormula.exp(base, ratePerMin, minutes, cap, won, mvp);
+
+rs.grant(playerId, RewardBundle.of(coins[rank - 1], exp), &quot;spleef:win&quot;)
+  .thenAccept(r -&gt; {
+      // 展示使用 r.granted()；访问 Bukkit 对象时切回主线程。
+      if (r.leveledUp()) { /* 结算界面上标一下升级 */ }
+  });
+</code></pre>
+<h3 id="测试局奖励与活动局">测试局奖励与活动局</h3>
+<p>测试阶段（内测 / 公测）的小游戏每打完一局会由框架发测试局额外奖励，默认为 1 点积分。
+如果本服是当前活动的目标子服，活动局不会发这份积分，也不会提示未发放。
+局中曾处于活动模式的，即使场控先结束活动、游戏后结算，也不会补发积分；其他子服的普通测试局照常发放。
+测试局额外奖励中另行配置的货币和经验照常发放，提示只显示实际到账的项目。</p>
+<h3 id="不要自己接经济插件">不要自己接经济插件</h3>
+<p>三样东西<strong>每个服的叫法和后端都不一样</strong>：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>是什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>CURRENCY</code></td>
+<td>本服货币</td>
+</tr>
+<tr>
+<td><code>EXP</code></td>
+<td>等级经验</td>
+</tr>
+<tr>
+<td><code>POINTS</code></td>
+<td>积分</td>
+</tr>
+</tbody></table>
+<p>资产名称来自奖励配置。通过 <code>rewards()</code> 发放可复用当前经济后端与积分数据，并自动写入后台审计。</p>
+<h3 id="代码里不要写死货币名">代码里不要写死货币名</h3>
+<pre><code class="language-java">Component name = rs.nameOf(RewardKind.CURRENCY);   // 本服货币的名字
+Component line = rs.format(RewardKind.CURRENCY, 1250);  // 「1,250 + 货币名」（带本服配色）
+Component lv   = rs.levelName();                   // 本服等级体系的名字
+</code></pre>
+<h3 id="部分成功与实际回执">部分成功与实际回执</h3>
+<p>本服货币与积分分别提交。某个后端不可用或事务失败时，其他资产仍可能成功。
+以 <code>GrantResult.granted()</code> 的实际数量和 <code>skipped()</code> 的失败项为准，不要按请求值显示到账或重复补发整包奖励。</p>
+<p><code>rs.supports(kind)</code> 用于检查后端配置；本次是否成功仍需检查回执。</p>
+<p>经济插件<strong>晚于</strong> FakeHappy 注册也没关系：
+<code>ServiceRegisterEvent</code> 会补接一次，日志里会打「货币后端已就绪」。
+不用调整插件加载顺序。</p>
+<h3 id="扣钱走单独的接口">扣钱走单独的接口</h3>
+<pre><code class="language-java">rs.takeCurrency(playerId, 500, &quot;spleef:entry-fee&quot;).thenAccept(ok -&gt; { ... });
+</code></pre>
+<p><code>RewardBundle</code> 拒绝负数。扣款单独使用 <code>takeCurrency</code> 或经济 API，并检查回执。</p>
+<p>经内置经济的扣款与流水在同一事务提交，后台统一查询资产流水。
+需要按来源、操作者和对局检索时，使用 <a href="audit.html">AuditContext</a> 重载。
+第三方经济后端的交易和本库审计不属于同一事务。</p>
+<h3 id="读值是非阻塞的">读值是非阻塞的</h3>
+<pre><code class="language-java">double money = rs.balance(id);          // 经济插件自己的内存缓存
+LevelInfo lv = rs.level(id);            // 档案在玩家进服时异步载入
+lv.level(); lv.progress(); lv.expToNext();
+</code></pre>
+<p>档案未载入时返回 <code>LevelInfo.UNKNOWN</code>，不会阻塞查询。显示等级和进度前先检查 <code>lv.known()</code>；未知状态的 <code>maxLevel</code> 为 0、<code>isMax()</code> 为 false。</p>
+<p>离线玩家：</p>
+<pre><code class="language-java">rs.levelAsync(id).thenAccept(lv -&gt; ...);    // 等级
+rs.pointsAsync(id).thenAccept(pt -&gt; ...);   // 积分（pt.totalExp() 是积分总数）
+</code></pre>
+<p>两个都在查不到时返回 <code>LevelInfo.UNKNOWN</code>，同样用 <code>known()</code> 区分
+「读不到」和「他真的是 0」。</p>
+<h3 id="两个子服同时给同一个人发奖励">两个子服同时给同一个人发奖励</h3>
+<p>不需要你做任何事，但值得知道底下发生了什么，因为<strong>这是最常见的形状</strong>：
+OP 在大厅用补发面板给一个正在小游戏服的玩家发奖励时，大厅这边看他「不在线」，
+走的是数据库原子累加；小游戏服那边内存里还缓存着他的档案。</p>
+<p>所以刷盘用的是 <code>exp = exp + 增量</code> 的<strong>增量合并</strong>，不是整行覆盖；
+合并完再按库里的真值把等级列算一遍，并把结果写回本机内存那份档案。
+只有 OP 面板的「覆盖」模式（<code>setExp</code> / <code>setPoints</code>）才整行写 ——
+那时候本来就是「不管库里现在多少，就是要设成 N」。</p>
+<h3 id="升级事件">升级事件</h3>
+<pre><code class="language-java">@EventHandler
+public void onLevelUp(PlayerLevelUpEvent e) {
+    // 主线程触发；跨多级只触发一次（from=3, to=6），不可取消
+}
+</code></pre>
+<h3 id="玩家侧的两条命令">玩家侧的两条命令</h3>
+<p><code>/level</code>（别名 <code>/lv</code>）查自己的货币、两条曲线的等级与进度；
+带一个玩家名是查别人，需要管理权限。离线玩家也查得到。
+<code>/level top [points]</code> 是排行榜（60 秒缓存）。</p>
+<p><code>/rewards</code>（别名 <code>/reward</code> <code>/jiangli</code>）打开领取界面：两条曲线的档位铺在同一张表里，
+三态格子（可领 / 已领 / 未解锁），红点数字来自「待领奖励」占位符。
+无 GUI 的场景用 <code>/rewards claim &lt;key&gt;</code> 和 <code>/rewards claimall</code>。</p>
+<p><code>auto-claim: true</code>（默认）时界面照样有用 —— 它是玩家看「我拿过什么」的地方。</p>
+<h3 id="奖励档位是-op-局内改的不是改文件">奖励档位是 OP 局内改的，不是改文件</h3>
+<p><code>/rewards admin</code> 打开编辑器，增删改一档奖励（等级门槛 / 货币 / 命令 / 公告 / 图标），
+<strong>保存后同步到各子服</strong>，不重启、不改文件。老客户端（Dialog 要 1.21.6+）
+和控制台用等价的命令行：<code>/rewards admin list|add|set|remove|import|status|reapply</code>。</p>
+<p>奖励档位由框架统一管理，修改后各子服重新读取。拓展使用公开奖励接口，不直接修改存储结构。</p>
+<p>删一档时记得加 <code>purge</code>：<code>/rewards admin remove level lv10 purge</code> 会连同全网的
+领取记录一起清。不清的话这个 key 会以幽灵形态留在所有领过的人身上，
+将来复用同名 key 时那批人会看到「已领取」且永远领不到。</p>
+<p><code>/rewards admin status</code> 显示本服的档位数与版本号 —— <strong>两台子服各看一眼版本号，
+就知道是不是有一台没同步上</strong>。</p>
+<hr>
+<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>

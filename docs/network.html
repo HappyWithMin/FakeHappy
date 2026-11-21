@@ -1,0 +1,22 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>跨服 · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a aria-current="page" href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="跨服">跨服</h1>
+<blockquote>
+<p>FakeHappy 开发文档的一部分。索引在 <a href="index.html">开发文档首页</a>。</p>
+</blockquote>
+<h2 id="8-跨服">8. 跨服</h2>
+<pre><code class="language-java">NetworkService net = api.network();
+if (!net.isAvailable()) { /* 跨服层不可用 */ }
+</code></pre>
+<p><strong>跨服层不可用时整体降级</strong>：查询返回空结果、上报静默丢弃、切服退回 BungeeCord
+插件消息。所以这套 API 在单机开发环境下全都能调，只是什么也不会发生 ——
+<strong>小游戏不需要为「这个子服有没有接跨服层」写两套代码。</strong></p>
+<pre><code class="language-java">net.rooms(&quot;spleef&quot;).thenAccept(rooms -&gt; ...);       // 回调在异步线程！
+net.findBestRoom(&quot;spleef&quot;).thenAccept(...);
+net.sendToServer(player, &quot;minigame-2&quot;);
+net.publish(&quot;myspleef&quot;, json);                       // 使用公开自定义频道
+var sub = net.subscribe(&quot;myspleef&quot;, payload -&gt; ...);
+</code></pre>
+<p><code>subscribe</code> 返回的句柄<strong>必须在你的插件卸载时 <code>cancel()</code></strong>，否则订阅线程会一直
+持有你的回调（连带整个插件类加载器）—— 这是重载后内存涨的典型原因。</p>
+<h3 id="房间预约">房间预约</h3>
+<p>房间预约由框架管理容量与超时。带队排队一次预约整队名额，容量不足时选择其他房间；未完成的预约自动释放。拓展通过 NetworkService 读房间、排队和转服，不操作内部预约键。</p>
+<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>

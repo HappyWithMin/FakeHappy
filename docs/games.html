@@ -1,0 +1,392 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>小游戏 · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a  href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a aria-current="page" href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="小游戏注册与合规">小游戏：注册与合规</h1>
+<blockquote>
+<p>FakeHappy 开发文档的一部分。索引在 <a href="index.html">开发文档首页</a>。</p>
+</blockquote>
+<h2 id="7-注册小游戏">7. 注册小游戏</h2>
+<p>实现 <code>MiniGame</code> 并注册进来，就自动获得：出现在大厅选择 UI、出现在 OP 场控面板、
+参与者自动被可见性隔离、自动豁免大厅保护、掉线时自动 <code>quit</code>、跨节点排队。</p>
+<pre><code class="language-java">@Override
+public void onEnable() {
+    HappyApi api = Happy.api();
+    api.games().register(this, new MySpleefGame(api));
+    // onDisable 不用手动注销 —— 框架监听 PluginDisableEvent 会自动清理
+}
+</code></pre>
+<p>descriptor 里的元数据是大厅 UI 和跨服排队的依据，务必填全：</p>
+<pre><code class="language-java">GameDescriptor.builder(&quot;spleef&quot;, text.parse(&quot;&lt;aqua&gt;雪球战&quot;))
+        .description(text.parse(&quot;&lt;gray&gt;把对手脚下的雪挖穿&quot;))
+        .icon(new ItemStack(Material.SNOW_BLOCK))
+        .iconSprite(&quot;&lt;sprite:gui:icon/checkmark&gt;&quot;)
+        .players(2, 16)
+        .category(&quot;pvp&quot;)
+        .crossServer(true)        // 参与跨节点排队
+        .isolateVisibility(true)  // 开局时与场外玩家互相隐藏
+        .stage(GameStage.BETA)    // 开发阶段，决定合规检查有多严（不填默认内测）
+        .partyMode(PartyMode.FOUR_BY_N)  // 编队形态，见 [组队](06-组队.md)。单人游戏也要显式写 SOLO
+        .sigma(2.0)               // 货币差距系数，见「奖励与结算」。规范要求它有书面记录
+        .build();
+</code></pre>
+<p>后三项是规范要求的，不填不会拦你注册，但注册那一刻的合规报告会逐条列出来（见本文「小游戏」一节）。</p>
+<h3 id="接口调用要求">接口调用要求</h3>
+<ol>
+<li><p><strong>玩家进出走 <code>GameRegistry</code>，不要直接调 <code>MiniGame</code> 上的对应方法。</strong></p>
+<table>
+<thead>
+<tr>
+<th>你要做的事</th>
+<th>走这个</th>
+<th>不要直接调</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>加入</td>
+<td><code>games().join(player, game)</code></td>
+<td><code>MiniGame.join</code></td>
+</tr>
+<tr>
+<td>加入指定那一局</td>
+<td><code>games().joinRoom(player, game, roomId)</code></td>
+<td><code>MiniGame.joinRoom</code></td>
+</tr>
+<tr>
+<td>开始旁观</td>
+<td><code>games().spectate(player, game)</code></td>
+<td><code>MiniGame.spectate</code></td>
+</tr>
+<tr>
+<td>退出（参与和旁观都是它）</td>
+<td><code>games().quit(uuid)</code></td>
+<td><code>MiniGame.quit</code></td>
+</tr>
+</tbody></table>
+<p>注册表靠这几个方法维护 <code>UUID -&gt; MiniGame</code> 反向索引，并顺带处理可见性隔离。
+绕过去会让索引和实际状态对不上，表现是「大厅保护把正在打游戏的人拦下了」、
+「他掉线了但局里还留着一个幽灵」、「“在不在游戏里”的占位符是 false」。</p>
+</li>
+<li><p><strong>状态变化走 <code>GameRegistry.setState</code></strong>，不要只改自己的字段。
+否则大厅 UI 和跨服房间信息不会更新。</p>
+</li>
+<li><p><strong><code>players()</code> 要便宜</strong>（大厅 UI 每秒问很多次），返回不可变视图或副本。</p>
+</li>
+</ol>
+<p><code>quit(UUID)</code> 收的是 UUID 不是 Player —— 掉线时框架也会调它，那时玩家已经离线了。</p>
+<h3 id="活动与自动开局">活动与自动开局</h3>
+<p>小游戏每次推进自动开局倒计时之前检查 <code>Happy.api().eventModeHere()</code>。为 true 时暂停自动开局，并取消已经开始的自动倒计时，等待管理员 / 场控明确开始。
+查询的是当前活动目标状态，<code>serverRole()</code> 只是固定配置：<code>MINIGAME</code> 子服也会临时成为活动目标，不能只用 <code>ServerRole.EVENT</code> 判断。
+该查询同步读取框架缓存，活动结束或转移到其他子服后返回 false，游戏可以恢复平常的自动开局规则。</p>
+<p>抽奖发起节点、外置开奖与场控接管见 <a href="events.html">活动接管</a>。小游戏只读取当前活动模式，不自行修改共享活动状态。</p>
+<h3 id="可见性隔离与旁观">可见性隔离与旁观</h3>
+<p><code>isolateVisibility(true)</code> 是<strong>框架替你做</strong>的，你不用碰 <code>hidePlayer</code>：</p>
+<ul>
+<li>参与者与场外玩家<strong>互相</strong>隐藏。注意这跟玩家自己的「隐藏玩家」开关无关 ——
+挡视野的那个人自己是不会去点隐藏的，挂在开关上就等于没有这个功能。</li>
+<li>同一个游戏的参与者互相看得见，别的游戏的看不见。</li>
+</ul>
+<p>旁观走 <code>games().spectate(...)</code> 的话，可见性按规范 8.1 处理，而且是<strong>不对称</strong>的：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>看得见</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>旁观者看场内玩家</td>
+<td>✔（不然就没得看了）</td>
+</tr>
+<tr>
+<td>场内玩家看旁观者</td>
+<td>✘ 规范 8.1「观战者对玩家不可见、不可干扰」</td>
+</tr>
+<tr>
+<td>大厅里的人看旁观者</td>
+<td>✘</td>
+</tr>
+<tr>
+<td>旁观者看同一局的其他旁观者</td>
+<td>✔</td>
+</tr>
+<tr>
+<td>旁观者看别的局</td>
+<td>✘</td>
+</tr>
+</tbody></table>
+<p>这一套要 <code>smart-visibility</code> 模块启用（大厅子服默认开着）。模块关着时框架会在
+控制台警告一次，不会静默失效 —— 游戏跑得好好的、只是场外能挡视野，
+没人会往「模块没开」上想。</p>
+<p>独占子服的小游戏用 <code>isolateVisibility(false)</code>，自己拿旁观者模式之类的手段处理。</p>
+<h4 id="已经有自己一套观战实现的">已经有自己一套观战实现的</h4>
+<p><code>spectate(...)</code> 默认会替你做两件事：强制切成原版 <code>SPECTATOR</code>，以及把他对局内玩家隐藏。
+自己写了观战（自己的可见性服务、导播位、自由镜头）的游戏两套一起上只会打架 ——
+谁后跑谁赢，表现成「观战偶尔抽风」。</p>
+<pre><code class="language-java">.spectatorTakeover(false)   // 视角和可见性归我，观战索引还是登记
+</code></pre>
+<p><strong>关键在于「还是登记」</strong>：<code>spectatingGameOf</code> 照样认得他，所以聊天隔离（10.2）、
+语音那边的观战自动闭麦这些<strong>只看索引</strong>的功能不受影响。
+从前想保住自己那套观战就只能整个不用框架的 <code>spectate(...)</code>，
+连带把这些也一起丢了 —— 这个开关就是为了把两件事拆开。</p>
+<p>代价是规范 8.1 的视角与不可见两条从「框架负责」变成你自查：
+合规报告里会多出 <code>spectate.self-managed</code> 这条必须项，做到了在 <code>compliance()</code> 里
+<code>done(&quot;spectate.self-managed&quot;)</code>。</p>
+<h3 id="大厅保护的豁免">大厅保护的豁免</h3>
+<p>大厅保护（挖不了方块、打不了人、不掉血不掉饿）对小游戏参与者<strong>自动不生效</strong>，
+判据是 <code>isInProgressGame</code> —— 也就是<strong>局已经开起来了</strong>：</p>
+<ul>
+<li>还在等开局的人照样受保护。那时候他就站在大厅里晃，跟别人没区别。</li>
+<li>PVP 要求<strong>双方在同一局</strong>里。参与者打场外的人、或者打另一局里的人，照样被拦。</li>
+<li>你的游戏在自己的世界里跑（世界名不匹配 <code>lobby-protect.world-name-contains</code>）的话，
+本来就没有大厅保护，这一段可以不用管。</li>
+</ul>
+<p><strong>爆炸不在豁免范围内</strong>：<code>BlockExplodeEvent</code> / <code>EntityExplodeEvent</code> 认不出「这是谁点的」，
+框架不去猜。要在大厅世界里炸方块的游戏，把场地放到单独的世界。</p>
+<h3 id="同时开好几局的游戏">同时开好几局的游戏</h3>
+<p><code>MiniGame</code> 代表的是<strong>这个子服上的这个游戏</strong>，不是「一局」。同时跑多局的
+（比如每支队伍一块地皮的玩法）覆写 <code>rooms()</code>：</p>
+<pre><code class="language-java">@Override
+public Collection&lt;GameRoom&gt; rooms() {
+    return matches.all().stream()
+            .map(m -&gt; new GameRoom(String.valueOf(m.plotIndex()),
+                    mapState(m.state()), m.size(), MAX_PARTY, 1))
+            .toList();
+}
+</code></pre>
+<p>不覆写的话默认实现返回一个「整体」房间，单局制的游戏不用管。</p>
+<p>覆写之后配套要做的：</p>
+<ul>
+<li><code>state()</code> 返回<strong>聚合状态</strong>（有任何一局在跑就是 RUNNING）</li>
+<li><code>joinRoom(player, roomId)</code> 把人放进<strong>指定那一局</strong> —— 跨服排队是按房间分配的，
+塞进另一局就把队友拆散了，而那正是跨服排队最该保证的事。
+人已经在这个游戏的另一局里时框架也会调它（跨服排队把他分到了别的房间），实现里要能换局</li>
+<li><strong><code>roomOf(uuid)</code> 说出每个人（参与者和旁观者）在哪一局</strong>（合规项 <code>room.player-room</code>，必须）。
+框架里凡是「同一局」的判断都靠它：<ul>
+<li>局内聊天：全局 / 观战 / 队伍频道只发给同一局的人（格式沿用这台子服平时的聊天格式；全局 / 队伍 / 观战频道前面各挂一个小图标）。不覆写的话一号房的话会发到二号房去</li>
+<li><code>sameGame</code> / <code>isInProgressGame</code>：大厅保护按<strong>他那一局</strong>开没开算 —— 别的房间开打了，
+等人这一局的人照样受保护；PVP 要求两人在同一局</li>
+<li>可见性隔离（<code>isolateVisibility(true)</code>）：场景按局分开，两局的人互相看不见</li>
+<li>语音分房：一局一间，<code>teamOf</code> 里不用再自己编局号</li>
+<li>带队加入：队长落在哪一局，本服的队友就进哪一局</li>
+<li>「所在房间」「游戏状态」占位符（给他那一局的状态）</li>
+</ul>
+</li>
+<li>场控逐局操作：覆写带 <code>roomId</code> 的 <code>forceStart / forceStop / pause / isPaused / reset</code>。
+场控面板「小游戏 → 逐局操作」里点某一局就走这几个；远程场控的 subject 写 <code>游戏id#房间id</code>。
+不覆写的话退回整个游戏的那个方法</li>
+<li><code>roomState(roomId)</code> 默认在 <code>rooms()</code> 里找，大厅保护每个事件都会问，最好覆写成查表</li>
+<li><code>rooms()</code> <strong>要便宜</strong>：框架每 3 秒调它做跨服上报</li>
+</ul>
+<p>自己在局与局之间挪人（玩家在游戏里点「换房间」）时，<strong>先 <code>games().quit</code> 再 <code>games().joinRoom</code></strong>，
+或者直接 <code>games().joinRoom</code> 到新房间 —— 隔离场景要跟着换，绕过注册表的话他还留在旧那一局的场景里。</p>
+<p>框架维护这些房间的跨服状态，代理据此分配玩家；
+子服被 kill -9 时房间信息会自己过期，不会在大厅里留下幽灵记录。</p>
+<hr>
+<h2 id="75-战绩与跨服偏好">7.5 战绩与跨服偏好</h2>
+<pre><code class="language-java">DataService data = api.data();
+if (!data.isAvailable()) { /* 没配数据库 —— 但下面的调用照样能写，只是不落盘 */ }
+
+// 一局打完，累加战绩。异步，不阻塞
+data.record(playerId, &quot;spleef&quot;, StatDelta.builder()
+        .play().win().kills(3).score(1200).playtime(elapsedMs).build());
+
+// 排行榜（回调在异步线程！）
+data.leaderboard(&quot;spleef&quot;, DataService.StatField.SCORE, 10)
+        .thenAccept(top -&gt; { /* ... */ });
+
+// 跨服偏好：玩家在大厅关掉的开关，切到小游戏服还是关着的
+data.setPrefBool(player, &quot;hide-players&quot;, true);
+boolean hidden = data.prefBool(player, &quot;hide-players&quot;, false);   // 同步读缓存
+</code></pre>
+<p>战绩使用相对增量，避免跨服同时读改写覆盖更新。普通战绩写入不返回 Future，失败记录在后台日志。</p>
+<p><code>prefCached</code> 是同步读，只查本机内存（玩家进服时已预热）—— 事件处理里用它，
+不要在事件里等 Future。</p>
+<blockquote>
+<p><strong>偏好是「全框架共用」的那一层</strong>，键空间是平的（<code>hide-players</code>、<code>voice-uid</code> 这种）。
+你自己游戏的数据不要往这儿放 —— 撞键的那天没有任何东西会报错，
+两边各自把对方的值覆盖掉。存自己的东西用下面的 <code>store()</code>。</p>
+</blockquote>
+<h3 id="存自己的数据playerstore">存自己的数据：<code>PlayerStore</code></h3>
+<p>战绩（局数、胜场、分数、排行榜）上面 <code>record()</code> 已经记过了，别重复写。
+<strong>只有你的游戏才懂的东西</strong> —— 个人最高纪录、赛季进度、今天领没领 —— 走这个：</p>
+<pre><code class="language-java">PlayerStore store = api.data().store(descriptor().id());   // 命名空间 = 你的游戏 id
+
+store.setInt(uuid, &quot;best&quot;, 128);                           // 永不过期
+store.set(uuid, &quot;played.today&quot;, &quot;1&quot;, Reset.DAILY);         // 到每日重置时刻自动消失
+store.set(uuid, &quot;cooldown&quot;, &quot;1&quot;, Duration.ofMinutes(5));   // 5 分钟后自动消失
+
+int best = store.getInt(uuid, &quot;best&quot;, 0);                  // 内存读，主线程随便调
+boolean played = store.has(uuid, &quot;played.today&quot;);
+long resetAt = store.expiresAt(uuid, &quot;played.today&quot;);      // 显示「距离重置还有多久」
+</code></pre>
+<p><strong>键是你的。</strong> 底下会加上 <code>你的命名空间:</code> 前缀，所以你的 <code>best</code> 和别人的 <code>best</code>
+不是同一个键；你也写不到框架自己的键上（想写都构造不出那个键名）。</p>
+<p><strong>过期不是定时任务。</strong> <code>Reset.DAILY</code> 落的是一个过期时间戳，读的时候比一下 ——
+十几台子服各自判断、结论必然一致，不会「重置跑了两遍」。</p>
+<p><strong>别自己写 <code>now + 24h</code>。</strong> 那样每个玩家的重置时刻都不一样，23:59 打完的人第二天
+一整天都是旧值，而且客服没法回答「我什么时候能再来」。<code>Reset.DAILY</code> 用的是
+全服同一条线，几点由服务端配置说了算。</p>
+<p><strong>边界</strong>：命名空间 ≤ 20（小写字母/数字/<code>_</code>/<code>-</code>），键名 ≤ 36，值 ≤ 255 字符。
+不合规的键直接抛 <code>IllegalArgumentException</code>，不截断 —— 这类东西全是写死的常量，
+第一次跑就会炸出来。<strong>超过 255 字符说明你该用自己的表了</strong>，这里不是放存档的地方。</p>
+<p><strong>没有「按我的键排序」</strong>：要排行榜请用 <code>record()</code> + <code>leaderboard()</code>，
+那是建了索引的列；在一个文本列上排序是会花钱的。</p>
+<p>存的值也能作为占位符挂到 Tab 列表 / 计分板上，具体写法问服主。</p>
+<h3 id="把外部账号绑在偏好上">把外部账号绑在偏好上</h3>
+<p>偏好也是「MC 账号 ↔ 外部账号」这类绑定的落脚点（比如把 MC 账号绑到语音账号，就存在
+<code>voice-uid</code> 这样的键上）。这种用法多出三个需求，API 都给了：</p>
+<pre><code class="language-java">// 判重：这个外部账号是不是已经绑给别人了。【必须用这个，不要用自己在内存里攒的反查表】
+data.playerByPref(&quot;voice-uid&quot;, uid)
+        .whenComplete((owner, err) -&gt; {
+            if (err != null)      { /* 不知道 —— 当成「可能已被占用」，不要放行 */ }
+            else if (owner.isPresent() &amp;&amp; !owner.get().equals(playerId)) { /* 已被占 */ }
+            else                  { data.setPref(playerId, &quot;voice-uid&quot;, uid); }
+        });
+
+// 管理界面：这个键全网有哪些人设过（按最近更新排，最多 500 条）
+data.prefsByKey(&quot;voice-uid&quot;, 200).thenAccept(map -&gt; { /* UUID -&gt; uid */ });
+
+// 别的子服改了某个玩家的偏好，把自己那份缓存丢掉
+var sub = data.onPrefChanged((playerId, key) -&gt; { if (&quot;voice-uid&quot;.equals(key)) forget(playerId); });
+// 插件卸载时 sub.cancel()
+</code></pre>
+<p>多子服查询要求：</p>
+<ul>
+<li><strong>自己攒的 uid → 玩家反查表只认识本服在线的人。</strong> 拿它判重，「那个人正好在别的子服」
+时会静默放行，同一个外部账号被两个 MC 号绑走。</li>
+<li><strong><code>playerByPref</code> 是本接口里唯一一个查询失败时 future 以异常完成的读方法。</strong>
+把「数据库读不到」当成「没人占用」，等于在数据库抖一下的那一瞬间放行一次重复绑定。</li>
+<li><strong>偏好本来没有失效通知</strong>，因为改它的人就是玩家自己。管理界面打破了这个前提 ——
+OP 改一个不在本服的玩家时，那台子服会一直拿着旧值直到玩家重新进服。</li>
+</ul>
+<p>跨服偏好由框架统一查询。管理列表按需分页，不维护第二份全量缓存。</p>
+<hr>
+<h2 id="78-规范自检注册时那份合规报告">7.8 规范自检：注册时那份合规报告</h2>
+<p><code>register</code> 的那一刻，框架会照《小游戏制作规范》把你的游戏过一遍，
+把<strong>还缺什么</strong>打到控制台：</p>
+<pre><code>[spec] spleef (公测) 22/35 必须项，2 项应当未做，4 项待人工，缺 10 项必须（当前是公测，仅提示）。
+       游戏内管理面板 → 小游戏 → 合规 看明细
+</code></pre>
+<p>内测和公测阶段只报告缺项。正式版 <code>stage(GameStage.RELEASE)</code> 缺少必须项时，默认拒绝注册。
+<code>game.enforce-spec=false</code> 可作为应急放行开关，日志会明确记录；恢复后应重新检查。</p>
+<p>游戏内：管理面板 → 选中你的游戏 → <strong>规范合规</strong> 按钮，tooltip 里是缺失清单，
+点一下重新检查并把完整明细打到控制台。</p>
+<h3 id="三种检查方式刻意不混着报">三种检查方式，刻意不混着报</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>框架能做到什么</th>
+<th>报告里显示</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>AUTO</strong></td>
+<td>反射看有没有覆写、descriptor 字段填没填、房间有没有类型</td>
+<td>结论可信</td>
+</tr>
+<tr>
+<td><strong>DECLARED</strong></td>
+<td>什么都验不了，只看你在 <code>GameCompliance</code> 里怎么说</td>
+<td>「已声明」≠ 已验证</td>
+</tr>
+<tr>
+<td><strong>MANUAL</strong></td>
+<td>美术原创度、文案侵权、Tab 排版好不好看</td>
+<td>只负责列出来提醒验收的人</td>
+</tr>
+</tbody></table>
+<p>混在一起报一个「通过率」的话，验收的人会以为框架已经替他看过了 ——
+而框架其实只看得到「你有没有写 <code>pause()</code> 这个方法」，看不到「你的暂停有没有真的冻住实体」。</p>
+<h3 id="声明你做了什么">声明你做了什么</h3>
+<p>框架验不了的项靠你自己声明。<strong>不声明 = 没做</strong>，这是有意的：
+默认「已实现」的话，一个从来没读过规范的人注册进来会显示满分，那这套检查就没意义了。</p>
+<pre><code class="language-java">@Override
+public GameCompliance compliance() {
+    return GameCompliance.builder()
+            .done(&quot;flow.back-to-hub&quot;, &quot;flow.settlement&quot;, &quot;econ.custom-no-reward&quot;)
+            .notApplicable(&quot;midjoin&quot;, &quot;一局 90 秒，中途进来没意义&quot;)
+            .notApplicable(&quot;reconnect&quot;, &quot;单局太短，重连窗口比一局还长&quot;)
+            .build();
+}
+</code></pre>
+<ul>
+<li>ID 见 <code>SpecCatalog</code>（<code>flow.* / party.* / room.* / ctrl.* / spectate* / ui.* / econ.* / art.*</code>）。
+<strong>写错的 ID 会被单独列出来提醒</strong>，不会静默忽略 —— 否则一个手滑的拼写会让你以为声明过了。</li>
+<li><code>notApplicable</code> <strong>必须给理由</strong>，理由会原样进报告给验收的人看。</li>
+<li><strong>「必须」项声明不适用不作数</strong>，报告里仍算缺失。那是全服统一的硬要求，个别游戏说不适用没用。</li>
+<li>形态上无从谈起的项框架自己会跳过：5.3 那条「m×2 两队空位不足时的提示」对 4×n 游戏
+不会挂在报告里。报告一旦永远不可能全绿，就没人会认真看了。</li>
+</ul>
+<h3 id="常见自动检查项">常见自动检查项</h3>
+<p>descriptor 上这三行是 AUTO 检测，填了当场变绿：</p>
+<pre><code class="language-java">.stage(GameStage.BETA)          // 本身不是检查项，但它决定检查有多严（不填默认内测）
+.partyMode(PartyMode.M_BY_2)    // party.mode
+.sigma(2.0)                     // econ.sigma —— 规范 12.2.6 要求 σ 有书面记录，这就是那份记录
+</code></pre>
+<p>加上覆写 <code>pause(boolean)</code>（<code>ctrl.pause</code>，规范第七章的<strong>必须</strong>项）、
+支持旁观就覆写 <code>spectate(Player)</code>、用 <code>api.ui().board(...)</code> 建计分板
+（<code>ui.tab-footer</code> / <code>ui.scoreboard</code>）。</p>
+<p><code>rooms()</code> 会在检查时被调一次 —— 它本来就要求便宜。刚注册时通常一局都没开，
+房间相关的项在「没有房间」时按通过处理：那不代表实现对，只代表现在无从判断，等有局了再看。</p>
+<hr>
+<h2 id="79-语音分房">7.9 语音分房</h2>
+<p>服务器上有个可选拓展会<strong>自动把同一局 / 同一队的人拖进同一个语音频道</strong>，
+散场再放回大厅。它只读框架已有的东西：</p>
+<ul>
+<li><code>MiniGame.teamOf(uuid)</code> —— 他在局内的哪一队</li>
+<li><code>GameRegistry.gameOf(uuid)</code> —— 他在哪个小游戏里</li>
+<li><code>PartyService.partyOf(uuid)</code> —— 他在哪支全服队伍里</li>
+<li><code>GamePlayerJoinEvent</code> / <code>GamePlayerQuitEvent</code> / <code>GameStateChangeEvent</code></li>
+</ul>
+<p><strong>只要你按本章正常注册了小游戏，语音分房就已经对你生效了。</strong>
+不需要你调任何 API，也不需要判断这个拓展装没装。</p>
+<p><strong>有队伍的游戏记得覆写 <code>teamOf</code></strong> —— 你本来就要为队伍文字频道写它（10.2），
+语音是同一份事实的另一个用途。不写的话，同一局的敌我双方只要没组队就会落进同一个
+语音频道，对手听得见你报点。</p>
+<p><strong>人人都是对手的局别分语音</strong>：单人竞技按「这一局」分一间的话，全场对手在同一个频道里。覆写
+<code>MiniGame.autoVoice(uuid)</code>，这种局里的人返回 false，框架就不拖他们（同一个游戏里组队的局照常分）。</p>
+<p><strong>开打之后再分</strong>：默认进了这一局就拉进语音频道，等人、倒计时的时候也拉。队伍要开局才定的游戏
+在 descriptor 里声明 <code>.voiceAfterStart(true)</code>：状态到 <code>RUNNING</code> 之前不拖人（多局制看 <code>roomState</code>），
+开局那一刻按队伍一次拉到位，省掉「先进本局频道、再进队伍频道」那一次拖动。</p>
+<blockquote>
+<p>多局制的游戏覆写了 <code>roomOf</code> 就自动「一局一间」（没有队伍的按局分，有队伍的按局 + 队分），
+<code>teamOf</code> 返回普通的队名就行。没覆写 <code>roomOf</code> 的老写法是把局号编进 <code>teamOf</code>
+（起床返回的是 <code>地图/队名</code>），分组按整个字符串走，两张图的红队自然是两个频道 ——
+那样没有队伍概念的多局制游戏只能分到「游戏」这一层。</p>
+</blockquote>
+<h3 id="分组口径框架推不出来自己托管">分组口径框架推不出来：自己托管</h3>
+<p><code>teamOf</code> 表达不了的分组（观战者按阵营分开、死了的人留在原队伍频道、赛后合并成一间），
+可以自己算好交进来。入口是注册在 <code>ServicesManager</code> 里的 <code>OopzVoiceApi</code>：</p>
+<pre><code class="language-java">// 接口在 fakehappy-api 里，不用加依赖；语音拓展可能比你晚加载，别缓存「没装」
+var rsp = getServer().getServicesManager().getRegistration(OopzVoiceApi.class);
+OopzVoiceApi voice = rsp == null ? null : rsp.getProvider();   // 没装拓展就是 null
+
+// 自己的对账循环里，每拍声明一次「现在谁该和谁在一起」
+if (voice != null &amp;&amp; voice.available()) {
+    voice.submitGroup(&quot;league:room7:red&quot;, &quot;7 号房 红队&quot;, redUuids);
+    voice.submitGroup(&quot;league:room7:blue&quot;, &quot;7 号房 蓝队&quot;, blueUuids);
+}
+voice.releaseGroup(&quot;league:room7:red&quot;);        // 散场
+</code></pre>
+<p><strong>是声明式的，不是命令式的。</strong> <code>submitGroup</code> 说的是「这一拍这个分组该有这些人」——
+同一个 key 反复提交只更新成员，不会重复建频道；名单里少了谁，那个人下一拍被送回大厅。
+所以正确写法是<strong>定时全量提交</strong>，不是在每个「玩家换队」事件里各调一次：
+后者漏一个事件就留下一个错位的人，而且永远自己好不了。</p>
+<p>被你点名的人自动分房那一轮就不碰了，所以<strong>不需要</strong>再声明 <code>voiceManaged(false)</code>。</p>
+<blockquote>
+<p>拓展是可选的：<code>getRegistration</code> 返回 null（没装）和 <code>available()</code> 返回 false
+（装了但语音平台连不上 / 没配好）两种情况你都得照常能跑。语音是加分项，
+不能变成故障点。</p>
+</blockquote>
+<h3 id="自己已经有一套语音方案">自己已经有一套语音方案</h3>
+<p>descriptor 里声明一句，框架就完全不碰这局里的人：</p>
+<pre><code class="language-java">GameDescriptor.builder(&quot;my-game&quot;, name)
+        .voiceManaged(false)        // 语音归我自己管
+        ...
+</code></pre>
+<p><strong>别让两套同时拖人。</strong> 你的方案按队把人放进 A 频道，框架下一拍按它的口径
+把人拖去 B，你的下一拍再拖回来 —— 玩家会被来回拽，而两边的日志都显示自己做对了。
+声明 false 之后，开频道、拖人、散场拖回大厅这三件事框架一件都不做。</p>
+<p>声明在 descriptor 而不是各子服的语音配置里，是因为那种名单换台机器就得再维护一份，
+漏了也不报错，只会表现成「这个游戏的语音偶尔抽风」。</p>
+<h2 id="可选依赖">可选依赖</h2>
+<p>插件需要独立运行时使用 softdepend，并将引用 FakeHappy API 的实现隔离到单独类中。先检查插件已加载，再实例化该实现；缺依赖时使用自己的降级行为。接口和常驻主类不要引用可选插件的类型。</p>
+<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>

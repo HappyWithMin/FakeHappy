@@ -1,0 +1,86 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>接入 · FakeHappy 1.4.1</title><link rel="stylesheet" href="site.css"></head><body><header><a href="../index.html"><strong>FakeHappy</strong></a><span>开发文档 1.4.1 · 2026-10-07</span><a href="../apidocs/api/index.html">Javadoc</a></header><div class="layout"><nav aria-label="章节"><a  href="index.html">开发文档</a><a aria-current="page" href="getting-started.html">接入</a><a  href="text.html">文本</a><a  href="ui.html">界面</a><a  href="games.html">小游戏</a><a  href="rewards.html">奖励与结算</a><a  href="party.html">组队</a><a  href="network.html">跨服</a><a  href="modules.html">模块</a><a  href="events.html">活动 API</a><a  href="audit.html">资产审计上下文</a></nav><main><h1 id="接入与工程结构">接入与工程结构</h1>
+<blockquote>
+<p>FakeHappy 开发文档的一部分。索引在 <a href="index.html">开发文档首页</a>。</p>
+</blockquote>
+<h2 id="1-sdk-内容">1. SDK 内容</h2>
+<p>获取并解压 <code>fakehappy-sdk-1.4.1.zip</code>：</p>
+<pre><code>fakehappy-sdk-1.4.1/
+├── README.md                              从哪开始
+├── libs/
+│   ├── fakehappy-api-1.4.1.jar              API
+│   ├── fakehappy-api-1.4.1-sources.jar      源码
+│   └── fakehappy-api-1.4.1-javadoc.jar
+├── AGENTS.md                              给 AI 的短入口，含必须项清单
+├── FAKEHAPPY-SPEC.md                      全量规范
+├── DEVELOPERS.md + docs/                  这一份文档
+└── example/                               参照实现，安装 SDK API 后构建
+</code></pre>
+<p>小游戏依赖公开 API；参照实现位于 <code>example/</code>。</p>
+<p>1.4.1 构件尚未公开发布，请使用服主提供的 SDK。先安装 SDK 的 <code>libs/</code>，再构建示例或自己的插件。</p>
+<h2 id="2-接入">2. 接入</h2>
+<h3 id="21-依赖">2.1 依赖</h3>
+<p>已发布版本可从静态仓库解析；1.4.1 使用后面的 SDK 安装方式：</p>
+<pre><code class="language-xml">&lt;repositories&gt;
+  &lt;repository&gt;
+    &lt;id&gt;fakehappy&lt;/id&gt;
+    &lt;url&gt;https://happywithmin.github.io/FakeHappy/maven&lt;/url&gt;
+  &lt;/repository&gt;
+  &lt;repository&gt;
+    &lt;id&gt;papermc-repo&lt;/id&gt;
+    &lt;url&gt;https://repo.papermc.io/repository/maven-public/&lt;/url&gt;
+  &lt;/repository&gt;
+&lt;/repositories&gt;
+
+&lt;dependencies&gt;
+  &lt;dependency&gt;
+    &lt;groupId&gt;maybe_c&lt;/groupId&gt;
+    &lt;artifactId&gt;fakehappy-api&lt;/artifactId&gt;
+    &lt;version&gt;1.4.1&lt;/version&gt;
+    &lt;scope&gt;provided&lt;/scope&gt;
+  &lt;/dependency&gt;
+&lt;/dependencies&gt;
+</code></pre>
+<p>SDK 构建时会填入仓库地址。仓库同时提供 sources 和 Javadoc，可由 IDE 下载。</p>
+<p>无法访问仓库时，可安装 <code>libs/</code> 中的离线文件：</p>
+<pre><code class="language-bash">mvn install:install-file \
+  -Dfile=libs/fakehappy-api-1.4.1.jar \
+  -Dsources=libs/fakehappy-api-1.4.1-sources.jar \
+  -Djavadoc=libs/fakehappy-api-1.4.1-javadoc.jar \
+  -DpomFile=libs/fakehappy-api-1.4.1.pom \
+  -DgroupId=maybe_c -DartifactId=fakehappy-api -Dversion=1.4.1 -Dpackaging=jar
+</code></pre>
+<p>安装后可移除仓库配置，保留相同依赖坐标。</p>
+<p>Gradle 的话把 <code>libs/</code> 拷进你的工程：</p>
+<pre><code class="language-kotlin">dependencies {
+    compileOnly(files(&quot;libs/fakehappy-api-1.4.1.jar&quot;))
+}
+</code></pre>
+<p><strong>只依赖 <code>fakehappy-api</code>，作用域使用 <code>provided</code> / <code>compileOnly</code>。</strong>
+不要依赖 core 或把 API 打包进自己的 jar，以免与服务器提供的类冲突。</p>
+<h3 id="22-pluginyml">2.2 plugin.yml</h3>
+<pre><code class="language-yaml">depend: [FakeHappy]        # 硬依赖，保证加载顺序
+# 或
+softdepend: [FakeHappy]    # 软依赖，自己判空
+</code></pre>
+<h3 id="23-取服务">2.3 取服务</h3>
+<pre><code class="language-java">HappyApi api = Happy.api();        // 硬依赖用这个，拿不到会抛异常
+HappyApi api = Happy.apiOrNull();  // 软依赖用这个
+</code></pre>
+<p>使用时重新取服务；内部缓存会随核心重载失效。</p>
+<h3 id="24-你能从-happyapi-拿到什么">2.4 你能从 <code>HappyApi</code> 拿到什么</h3>
+<pre><code class="language-java">api.text()        文本：三语法混写与文本安全      docs/02
+api.ui()          菜单：Dialog 与箱子共用一套按钮  docs/03
+api.games()       小游戏注册与生命周期            docs/04
+api.rewards()     发货币 / 等级 / 积分           docs/05
+api.economy()     读余额、收报名费                docs/05，可能为 null
+api.settlement()  按名次结算奖励                  docs/05
+api.party()       全服组队，编队形态              docs/06
+api.chat()        局内聊天分频（队伍 / 全局 / 观战）docs/04
+api.network()     跨服：房间、送人、自定义频道      docs/07
+api.data()        战绩与跨服偏好                  docs/04
+api.modules()     可选：注册可开关的模块           docs/08
+api.events()      活动操作、抽奖提交与转服回执      docs/09
+</code></pre>
+<p><code>economy()</code> 在经济模块未启用时可能返回 null，必须判空。其他服务返回非空实现；后端不可用时按各接口约定返回空结果或失败状态。</p>
+<hr>
+<footer>FakeHappy 开发文档 · 1.4.1</footer></main></div></body></html>
